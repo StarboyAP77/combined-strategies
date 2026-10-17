@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Periodic Rebalancing & Withdrawal Backtest Tool</title>
+    <link rel="stylesheet" href="./css/base.css">
+    <link rel="stylesheet" href="./css/print.css">
+    <link rel="stylesheet" href="./css/components.css">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <div class="controls">
+        <details class="control-group" open>
+            <summary><h3>Equity Strategy</h3></summary>
+            <div class="details-content">
+                <label for="strategy-selector">Momentum Strategy (monthly NAV)</label>
+                <select id="strategy-selector">
+                    <option value="nseMidcap150Mom50" selected>NSE Midcap 150 Mom 50</option>
+                    <option value="bseMidcap150Mom30">BSE Midcap 150 Mom 30</option>
+                    <option value="nse500Mom50">NSE 500 Mom 50</option>
+                </select>
+                <small style="color: var(--label-color);">Gold &amp; benchmark load from data.json; equity switches here.</small>
+            </div>
+        </details>
+
+        <details class="control-group" open>
+            <summary><h3>Target Allocation (%)</h3></summary>
+            <div class="details-content">
+                <div id="allocation-inputs" class="allocation-grid"></div>
+            </div>
+        </details>
+
+        <details class="control-group" open>
+            <summary><h3>Backtest Period</h3></summary>
+            <div class="details-content">
+                <label for="start-date">Start Date</label>
+                <select id="start-date"></select>
+                <label for="end-date">End Date</label>
+                <select id="end-date"></select>
+            </div>
+        </details>
+
+        <!-- NEW: Investment Configuration Section -->
+        <details class="control-group" open>
+            <summary><h3>Investment Configuration</h3></summary>
+            <div class="details-content">
+                <label>Investment Method</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="investment-method" value="lumpsum" checked> Lumpsum</label>
+                    <label><input type="radio" name="investment-method" value="sip"> Monthly SIP</label>
+                    <label><input type="radio" name="investment-method" value="valueDynamicSip"> Value Dynamic SIP</label>
+                    <label><input type="radio" name="investment-method" value="growthDynamicSip"> Growth Dynamic SIP</label>
+                </div>
+                <div id="lumpsum-group">
+                    <label for="lumpsum-amount">Lumpsum Amount</label>
+                    <input type="number" id="lumpsum-amount" value="2500000" step="100000">
+                </div>
+                <div id="sip-group" style="display: none;">
+                    <label for="monthly-sip-amount">Monthly SIP Amount</label>
+                    <input type="number" id="monthly-sip-amount" value="20000" step="1000">
+                    <label for="sip-duration">SIP Duration (Months)</label>
+                    <input type="number" id="sip-duration" value="500" step="1" min="1">
+                </div>
+                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--border-color);">
+                    <label for="current-monthly-expenses" style="color: #2c3e50;">Target Monthly Expenses (for FIRE calc)</label>
+                    <input type="number" id="current-monthly-expenses" value="592" step="10">
+                    <small style="color: var(--label-color);">Amount you need per month to live freely (Current Value)</small>
+                </div>
+            </div>
+        </details>
+
+        <!-- NEW: Rebalance Frequency Config -->
+        <details class="control-group" open>
+            <summary><h3>Periodic Rebalancing</h3></summary>
+            <div class="details-content">
+                <label>Rebalancing Strategy</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="rebalance-strategy" value="static" checked> Static</label>
+                    <label><input type="radio" name="rebalance-strategy" value="momentum"> Momentum</label>
+                </div>
+
+                <label for="rebalance-frequency">Rebalance Frequency</label>
+                <select id="rebalance-frequency">
+                    <option value="1">Monthly</option>
+                    <option value="2">2 Monthly</option>
+                    <option value="3">Quarterly</option>
+                    <option value="4">4 Monthly</option>
+                    <option value="5">5 Monthly</option>
+                    <option value="6">Semi-Annually</option>
+                    <option value="12" selected>Annually</option>
+                    <option value="24">Two Yearly</option>
+                    <option value="36">Three Yearly</option>
+                    <option value="48">Four Yearly</option>
+                    <option value="60">Five Yearly</option>
+                </select>
+
+                <div style="margin-top: 15px;">
+                    <label for="rebalance-threshold">Rebalance Threshold (± %)</label>
+                    <input type="number" id="rebalance-threshold" value="10" min="0" max="25" step="1">
+                    <small style="color: var(--label-color);">Only executes annual rebalance if an asset's weight deviates from target by more than this % (e.g., 10% means 60% target must hit 70% or 50% to trigger a trade).</small>
+                </div>
+
+                <div id="momentum-settings" style="display: none; margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                    <label for="momentum-lookback">Momentum Lookback (Months)</label>
+                    <input type="number" id="momentum-lookback" value="12" min="1" step="1">
+                    <small style="color: var(--label-color);">System will assign the highest target allocation % to the best performing asset over the lookback period.</small>
+                </div>
+                
+                <div style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                    <label style="display: flex; align-items: center; gap: 10px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="gold-trend-filter" style="width: auto; margin-bottom: 0;">
+                        <span>Enable Gold Trend Filter (10-Month SMA)</span>
+                    </label>
+                    <small style="color: var(--label-color); display: block; margin-top: 5px;">
+                        If enabled: When Gold falls below its 10-month average, the allocation meant for Gold (static or momentum) is moved to Bond.
+                    </small>
+                </div>
+
+            </div>
+        </details>
+
+       <details class="control-group" open>
+            <summary><h3>Withdrawal & Bunker Config</h3></summary>
+            <div class="details-content">
+                <label style="color: #2c3e50; font-weight: bold;">Withdrawal Strategy</label>
+                <div class="radio-group" style="margin-bottom: 15px; display: block;">
+                    <label style="display:block; margin-bottom:8px;">
+                        <input type="radio" name="withdrawal-strategy-mode" value="standard" checked>
+                        Standard (Proportional Sell)
+                    </label>
+                    <label style="display:block; margin-bottom:8px;">
+                        <input type="radio" name="withdrawal-strategy-mode" value="smart_rebalance">
+                        🛡️ Smart Defense (Fortress & Flow)
+                    </label>
+                    <label style="display:block; margin-bottom:8px;">
+                        <input type="radio" name="withdrawal-strategy-mode" value="guyton_klinger">
+                        📏 Guyton-Klinger (Guardrails)
+                    </label>
+                </div>
+
+                <!-- BUNKER SETTINGS PANEL -->
+                <div id="bunker-config-panel" style="display:none; margin-bottom: 20px; padding: 15px; background: #fff8e1; border: 1px solid #ffe0b2; border-radius: 6px;">
+                    <h4 style="margin-top:0; color:#f57f17; border-bottom:1px solid #ffe0b2; padding-bottom:5px;">🛡️ The Bunker (Cash Reserve)</h4>
+                    
+                    <label for="bunker-initial">Initial Bunker Amount (₹)</label>
+                    <input type="number" id="bunker-initial" value="500000" step="50000">
+                    
+                    <label for="crash-threshold">🔥 Crash Protocol Trigger (%)</label>
+                    <input type="number" id="crash-threshold" value="15" step="1">
+                    <small style="color: #bf360c;">If Portfolio is down > X% from ATH, stop selling assets and burn Bunker cash.</small>
+
+                    <div style="margin-top:15px; padding-top:10px; border-top:1px dashed #ffe0b2;">
+                        <label style="display: flex; align-items: center; gap: 10px; font-weight: bold; color: #2e7d32; cursor: pointer;">
+                            <input type="checkbox" id="enable-bunker-refill" checked style="width: auto; margin-bottom: 0;">
+                            <span>🐿️ Enable "Euphoria Refill"</span>
+                        </label>
+                        
+                        <div id="refill-settings" style="margin-top:10px; padding-left: 20px;">
+                            <label for="bunker-cap">Bunker Cap Limit (₹)</label>
+                            <input type="number" id="bunker-cap" value="500000" step="50000">
+                            <small style="color: #555;">Stop refilling if Bunker > This Amount.</small>
+                            
+                            <label for="refill-threshold" style="margin-top:10px;">Refill Trigger (%)</label>
+                            <input type="number" id="refill-threshold" value="5" step="0.5">
+                            <small style="color: #555;">Refill only if Portfolio grows X% above the last time you refilled.</small>
+                        </div>
+
+                        <div style="margin-top: 15px; border-top: 1px dashed #ffe0b2; padding-top: 10px;">
+                            <label for="smart-drift-tolerance" style="color: #e65100;">Winner Drift Tolerance (%)</label>
+                            <input type="number" id="smart-drift-tolerance" value="5" step="0.5">
+                            <small style="color: #bf360c;">
+                                Sell Winner <b>ONLY</b> if it exceeds target by this %. <br>
+                                (e.g. Target 60% + 5% Tol = Sell above 65%)
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GUYTON-KLINGER SETTINGS PANEL -->
+                <div id="gk-config-panel" style="display:none; margin-bottom: 20px; padding: 15px; background: #f3e5f5; border: 1px solid #ce93d8; border-radius: 6px;">
+                    <h4 style="margin-top:0; color:#7b1fa2; border-bottom:1px solid #ce93d8; padding-bottom:5px;">📏 Guyton-Klinger Guardrails</h4>
+                    
+                    <label for="gk-initial-rate">Initial Withdrawal Rate (%)</label>
+                    <input type="number" id="gk-initial-rate" value="5" step="0.5">
+                    <small style="color: #555;">Starting withdrawal percentage of portfolio (annualized).</small>
+                    
+                    <label for="gk-upper-threshold">Upper Guardrail (%)</label>
+                    <input type="number" id="gk-upper-threshold" value="6" step="0.5">
+                    <small style="color: #555;">If current withdrawal rate exceeds this, decrease withdrawal.</small>
+                    
+                    <label for="gk-lower-threshold">Lower Guardrail (%)</label>
+                    <input type="number" id="gk-lower-threshold" value="4" step="0.5">
+                    <small style="color: #555;">If current withdrawal rate falls below this, increase withdrawal.</small>
+                    
+                    <label for="gk-adjustment-magnitude">Adjustment Magnitude (%)</label>
+                    <input type="number" id="gk-adjustment-magnitude" value="10" step="1">
+                    <small style="color: #555;">Percentage to adjust withdrawal when a guardrail is breached.</small>
+
+                    <label for="gk-bunker-refill-amount" style="margin-top: 10px;">Bunker Refill from Excess (₹)</label>
+                    <input type="number" id="gk-bunker-refill-amount" value="50000" step="5000">
+                    <small style="color: #555;">Amount to skim into Bunker when withdrawal rate falls below lower guardrail (portfolio is healthy).</small>
+                    
+                    <div style="margin-top:15px; padding-top:10px; border-top:1px dashed #ce93d8;">
+                        <label style="display: flex; align-items: center; gap: 10px; font-weight: bold; color: #2e7d32; cursor: pointer;">
+                            <input type="checkbox" id="gk-enable-flexibility" checked style="width: auto; margin-bottom: 0;">
+                            <span>🔄 Enable Flexibility Rule</span>
+                        </label>
+                        <div id="gk-flexibility-info" style="margin-top:10px; padding-left: 20px;">
+                            <small style="color: #555;">Prevents increases after loss years and decreases after gain years.</small>
+                        </div>
+                    </div>
+                </div>
+
+                <label>Withdrawal Frequency</label>
+                <div class="radio-group" style="margin-bottom: 15px;">
+                    <label><input type="radio" name="withdrawal-freq" value="1" checked> Monthly</label>
+                    <label><input type="radio" name="withdrawal-freq" value="3"> Quarterly</label>
+                    <label><input type="radio" name="withdrawal-freq" value="12"> Yearly</label>
+                </div>
+
+                <label for="monthly-withdrawal" id="lbl-withdrawal-amount">Target Monthly Expense (₹)</label>
+                <input type="number" id="monthly-withdrawal" value="20000" step="1000">
+                
+                <label for="liquid-return">Liquid/Bunker Return (%)</label>
+                <input type="number" id="liquid-return" value="5.0" step="0.5">
+
+                <label for="withdrawal-delay">Start Withdrawals After (Years)</label>
+                <input type="number" id="withdrawal-delay" value="0" min="0" step="1">
+                
+                <label for="inflation-rate">Annual Inflation Rate (%)</label>
+                <input type="number" id="inflation-rate" value="4" step="0.5">
+            </div>
+        </details>
+
+
+        <!-- NEW: Target Passive Income Config -->
+        <details class="control-group" open>
+            <summary><h3>🎯 Crossover Settings</h3></summary>
+            <div class="details-content">
+                <label for="target-monthly-income">Target Passive Income</label>
+                <input type="number" id="target-monthly-income" value="40000" step="5000">
+                <small style="color: var(--label-color);">Monthly amount you want from your portfolio (Safe Withdrawal).</small>
+            </div>
+        </details>
+
+        <!-- NEW: Monte Carlo -->
+        <details class="control-group" open>
+            <summary><h3>Monte Carlo Settings</h3></summary>
+            <div class="details-content">
+                <label for="mc-years">Simulation Period (Years)</label>
+                <input type="number" id="mc-years" value="50" min="1" step="1">
+                <label for="mc-simulations">Number of Simulations</label>
+                <input type="number" id="mc-simulations" value="5000" min="10" step="10">
+                <button id="run-mc-btn">Run Monte Carlo</button>
+            </div>
+        </details>
+
+        <!-- NEW: Random Walk -->
+        <details class="control-group" open>
+            <summary><h3>🎲 Random Walk Settings</h3></summary>
+            <div class="details-content">
+                <label for="rw-steps">Duration (Months)</label>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <input type="range" id="rw-steps" min="12" max="480" step="12" value="480" style="flex: 1;">
+                    <span id="rw-steps-val" style="width: 50px; text-align: right;">480</span>
+                </div>
+                
+                <label for="rw-paths">Number of Paths</label>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <input type="range" id="rw-paths" min="100" max="10000" step="100" value="10000" style="flex: 1;">
+                    <span id="rw-paths-val" style="width: 50px; text-align: right;">1000</span>
+                </div>
+
+                <label for="rw-seed">Random Seed (For consistency)</label>
+                <input type="number" id="rw-seed" value="12345" step="1">
+
+                <label>Simulation Method</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="rw-method" value="bootstrap" checked> Real history (Bootstrap)</label>
+                    <label><input type="radio" name="rw-method" value="gbm"> Bell-curve (GBM)</label>
+                </div>
+
+                <label for="rw-block">Block Months (bootstrap memory)</label>
+                <input type="number" id="rw-block" value="3" min="1" max="12" step="1">
+
+                <button id="run-rw-btn" style="margin-top: 10px; background-color: #8e44ad;">Run Simulation</button>
+            </div>
+        </details>
+
+        <!-- GOD MODE / ACTIVE STRATEGY SETTINGS -->
+        <details class="control-group">
+            <summary><h3 style="color: #8e44ad;">⚡ Active Strategy Config</h3></summary>
+            <div class="details-content">
+                <label for="gm-lookback">Momentum Lookback (Months)</label>
+                <input type="number" id="gm-lookback" value="3" min="1" step="1">
+                
+                <label for="gm-vol-window">Volatility Window (Months)</label>
+                <input type="number" id="gm-vol-window" value="3" min="1" step="1">
+
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ccc;">
+                    <label>Friction & Taxes</label>
+                    <label for="gm-tax-rate" style="font-weight: normal; font-size: 13px;">Tax Rate per Switch (%)</label>
+                    <input type="number" id="gm-tax-rate" value="20" step="0.5"> <!-- STCG Proxy -->
+                    
+                    <label for="gm-cost-per-trade" style="font-weight: normal; font-size: 13px;">Slippage/Cost (%)</label>
+                    <input type="number" id="gm-cost-per-trade" value="0.1" step="0.01">
+                </div>
+            </div>
+        </details>
+
+        <!-- TAX CONFIGURATION -->
+        <details class="control-group" open>
+            <summary><h3>Tax Config (Real Money)</h3></summary>
+            <div class="details-content">
+                <label for="tax-stcg">Short-Term Tax Rate (%)</label>
+                <input type="number" id="tax-stcg" value="20" step="0.5">
+                
+                <label for="tax-ltcg">Long-Term Tax Rate (%)</label>
+                <input type="number" id="tax-ltcg" value="12.5" step="0.5">
+                
+                <label for="tax-exemption">LTCG Exemption Limit (₹)</label>
+                <input type="number" id="tax-exemption" value="125000" step="5000">
+                
+                <small style="color:var(--label-color); display:block; margin-top:5px;">
+                    Tax is deducted automatically from the portfolio during rebalancing sales.
+                </small>
+            </div>
+        </details>
+
+        <button id="export-pdf-btn" style="background-color: #2c3e50; margin-top: 20px; border: 1px solid #fff;">
+            📄 Export Full Report (PDF)
+        </button>
+
+    </div>
+
+    <div class="results">
+        <details class="chart-group" id="sec-strategy-comparison">
+            <summary><h3>Strategy Comparison</h3></summary>
+            <div class="details-content">
+                <div style="text-align: right; margin-bottom: 10px;">
+                    <label for="log-scale-toggle" style="font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="log-scale-toggle" style="width: auto; margin-bottom: 0; vertical-align: middle;">
+                        Use Log Scale
+                    </label>
+                </div>
+                <div class="chart-container">
+                    <div id="equity-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+                <details class="chart-group" id="sec-allocation-drift-stacked">
+                    <summary><h3>Allocation Drift (Stacked)</h3></summary>
+                    <div class="details-content">
+                        <div class="allocation-charts-container">
+                            <div class="allocation-chart-wrapper">
+                                <div class="chart-container" style="height: 300px;"><div id="allocation-chart-rebalanced" style="width: 100%; height: 100%;"></div></div>
+                            </div>
+                            <div class="allocation-chart-wrapper">
+                                <div class="chart-container" style="height: 300px;"><div id="allocation-chart-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+                            </div>
+                        </div>
+                </details>
+
+                <!-- REBALANCE LEDGER -->
+                <details class="chart-group" id="sec-rebalancing-ledger-one-view">
+                    <summary><h3>Rebalancing Ledger (One-View)</h3></summary>
+                    <div class="details-content">
+                        <p style="font-size: 14px; color: var(--label-color); margin-bottom: 15px;">
+                            A consolidated view of moves. <strong>Sell</strong> the assets on the left, <strong>Buy</strong> the assets on the right.
+                        </p>
+                        <div style="overflow-x: auto; border: 1px solid var(--border-color);">
+                            <table id="rebalance-log-table" class="metrics-table" style="font-size: 13px; text-align: center;">
+                                <thead style="position: sticky; top: 0; background: var(--table-header-bg); z-index: 2;">
+                                    <tr>
+                                        <th style="width: 20%">Date</th>
+                                        <th style="width: 20%">Sold Assets (Value & Status)</th>
+                                        <th style="width: 25%">Bought Assets</th>
+                                        <th style="width: 15%">Impact %</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="chart-group" id="sec-perfomance-metrics-without-withdrawals">
+                    <summary><h3>Perfomance Metrics (Without Withdrawals)</h3></summary>
+                    <table id="metrics-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>No Rebalance</th>
+                                <th>Periodic Rebalance</th>
+                                <th>Benchmark</th>
+                                <th>Equity Only</th>
+                                <th>Gold Only</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </details>
+                <details class="chart-group" id="sec-performance-metrics-with-withdrawals">
+                    <summary><h3>Performance Metrics (With Withdrawals)</h3></summary>
+                    <table id="metrics-table-with-withdrawals" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>No Rebalance</th>
+                                <th>Periodic Rebalance</th>
+                                <th>Benchmark</th>
+                                <th>Equity Only</th>
+                                <th>Gold Only</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </details>
+
+                <!-- Yearly Bars -->
+                 <details class="chart-group" id="sec-yearly-returns">
+                    <summary><h3>Yearly Returns</h3></summary>
+                    <div class="details-content">
+                        <h4>Rebalanced Strategy - Yearly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="yearly-returns-rebalanced" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Non-Rebalanced Strategy - Yearly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="yearly-returns-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Benchmark - Yearly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="yearly-returns-benchmark" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Equity Only - Yearly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="yearly-returns-equityonly" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Gold Only - Yearly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="yearly-returns-goldonly" style="width: 100%; height: 100%;"></div></div>
+                    </div>
+                </details>
+
+                <!-- Yearly Paths -->
+                <details class="chart-group" id="sec-yearly-paths">
+                    <summary><h3>Yearly Paths</h3></summary>
+                    <div class="details-content">
+                        <!-- 1. REBALANCED -->
+                        <h5 style="text-align:center; color:#2980b9; margin-top:5px;">Rebalanced Strategy - Intra-Year Path (Spaghetti)</h5>
+                        <div class="chart-container" style="height: 400px;"><div id="yearly-path-rebalanced" style="width: 100%; height: 100%;"></div></div>
+
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 30px 0;">
+
+                        <!-- 2. NON-REBALANCED -->
+                        <h5 style="text-align:center; color:#c0392b; margin-top:5px;">Non-Rebalanced Strategy - Intra-Year Path (Spaghetti)</h5>
+                        <div class="chart-container" style="height: 400px;"><div id="yearly-path-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 30px 0;">
+
+                        <!-- 3. BENCHMARK -->
+                        <h5 style="text-align:center; color:#7f8c8d; margin-top:5px;">Benchmark - Intra-Year Path (Spaghetti)</h5>
+                        <div class="chart-container" style="height: 400px;"><div id="yearly-path-benchmark" style="width: 100%; height: 100%;"></div></div>
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 30px 0;">
+
+                        <!-- 4. EQUITY ONLY -->
+                        <h5 style="text-align:center; color:#006400; margin-top:5px;">Equity Only - Intra-Year Path (Spaghetti)</h5>
+                        <div class="chart-container" style="height: 400px;"><div id="yearly-path-equityonly" style="width: 100%; height: 100%;"></div></div>
+
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 30px 0;">
+
+                        <!-- 5. GOLD ONLY -->
+                        <h5 style="text-align:center; color:#DAA520; margin-top:5px;">Gold Only - Intra-Year Path (Spaghetti)</h5>
+                        <div class="chart-container" style="height: 400px;"><div id="yearly-path-goldonly" style="width: 100%; height: 100%;"></div></div>
+                    </div>
+                </details>
+
+                <!-- QUARTERLY PERFORMANCE HEATMAP -->
+                <details class="chart-group" id="sec-quarterly-performance-heatmap">
+                    <summary><h3>Quarterly Performance Heatmap</h3></summary>
+                    <div class="details-content">
+                        <div class="radio-group" style="justify-content: center; margin-bottom: 15px;">
+                            <label><input type="radio" name="quarterly-view-mode" value="reb" checked> Rebalanced</label>
+                            <label><input type="radio" name="quarterly-view-mode" value="noReb"> Non-Rebalanced</label>
+                            <label><input type="radio" name="quarterly-view-mode" value="benchmark"> Benchmark</label>
+                            <label><input type="radio" name="quarterly-view-mode" value="equityOnly"> Equity Only</label>
+                            <label><input type="radio" name="quarterly-view-mode" value="goldOnly"> Gold Only</label>
+                        </div>
+                        
+                        <div style="overflow-x: auto;">
+                            <table id="quarterly-heatmap-table" class="metrics-table" style="text-align: center; width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 80px;">Year</th>
+                                        <th style="width: 100px;">Pattern</th>
+                                        <th>Q1 (Jan-Mar)</th>
+                                        <th>Q2 (Apr-Jun)</th>
+                                        <th>Q3 (Jul-Sep)</th>
+                                        <th>Q4 (Oct-Dec)</th>
+                                        <th>Annual Return</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- JS will populate this -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Monthly Bars -->
+                <details class="chart-group" id="sec-monthly-returns">
+                    <summary><h3>Monthly Returns</h3></summary>
+                    <div class="details-content">
+                        <h4>Rebalanced Strategy - Monthly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="monthly-returns-rebalanced" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Non-Rebalanced Strategy - Monthly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="monthly-returns-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Benchmark - Monthly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="monthly-returns-benchmark" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Equity Only - Monthly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="monthly-returns-equityonly" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Gold Only - Monthly Returns</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="monthly-returns-goldonly" style="width: 100%; height: 100%;"></div></div>
+                    </div>
+                </details>
+
+                <!-- AVERAGE ROLLING RETURNS (1M-12M) -->
+                <details class="chart-group" id="sec-average-rolling-returns-1m-12m">
+                    <summary><h3>Average Rolling Returns (1M - 12M)</h3></summary>
+                    <div class="details-content">
+                        <p style="font-size: 14px; color: var(--label-color); margin-bottom: 10px;">
+                            This chart shows the average return you would have made if you held the portfolio for X months. 
+                            It compares the consistency of returns across different short-term timeframes.
+                        </p>
+                        <div class="chart-container" style="height: 450px;">
+                            <div id="avg-rolling-returns-chart" style="width: 100%; height: 100%;"></div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Underwater -->
+                <details class="chart-group" id="sec-underwater-drawdown-chart">
+                    <summary><h3>Underwater (Drawdown) Chart</h3></summary>
+                    <div class="details-content">
+                        <h4>Rebalanced Strategy - Drawdown</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="drawdown-chart-rebalanced" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Non-Rebalanced Strategy - Drawdown</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="drawdown-chart-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Benchmark - Drawdown</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="drawdown-chart-benchmark" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Equity Only - Drawdown</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="drawdown-chart-equityonly" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Gold Only - Drawdown</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="drawdown-chart-goldonly" style="width: 100%; height: 100%;"></div></div>
+                    </div>
+                </details>
+
+                <!-- fair value analysis -->
+                <details class="chart-group" id="sec-fair-value-analysis">
+                    <summary><h3>Fair Value Analysis</h3></summary>
+                    <div class="details-content">
+
+                        <!-- 2. REBALANCED -->
+                        <h4 style="text-align:center; color:#2980b9; margin-top:20px;">Rebalanced - Fair Value Band (3Y Trend)</h4>
+                        <p style="font-size: 13px; text-align: center; color: #666; margin-bottom: 10px;">
+                            Is the portfolio Overvalued (Above Grey) or Undervalued (Below Grey)?
+                        </p>
+                        <div class="chart-container" style="height: 350px;"><div id="fair-value-rebalanced" style="width: 100%; height: 100%;"></div></div>
+                        
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 40px 0;">
+
+                        <!-- 2. NON-REBALANCED -->
+                        <h4 style="text-align:center; color:#c0392b; margin-top:20px;">Non-Rebalanced - Fair Value Band (3Y Trend)</h4>
+                        <div class="chart-container" style="height: 350px;"><div id="fair-value-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 40px 0;">
+
+                        <!-- 3. BENCHMARK -->
+                        <h4 style="text-align:center; color:#7f8c8d; margin-top:20px;">Benchmark - Fair Value Band (3Y Trend)</h4>
+                        <div class="chart-container" style="height: 350px;"><div id="fair-value-benchmark" style="width: 100%; height: 100%;"></div></div>
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 40px 0;">
+
+                        <!-- 4. EQUITY ONLY -->
+                        <h4 style="text-align:center; color:#006400; margin-top:20px;">Equity Only - Fair Value Band (3Y Trend)</h4>
+                        <div class="chart-container" style="height: 350px;"><div id="fair-value-equityonly" style="width: 100%; height: 100%;"></div></div>
+
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 40px 0;">
+
+                        <!-- 5. GOLD ONLY -->
+                        <h4 style="text-align:center; color:#DAA520; margin-top:20px;">Gold Only - Fair Value Band (3Y Trend)</h4>
+                        <div class="chart-container" style="height: 350px;"><div id="fair-value-goldonly" style="width: 100%; height: 100%;"></div></div>
+                        
+                    </div>
+                </details>
+                
+                <!-- valuation dot plot -->
+                <details class="chart-group" id="sec-valuation-dot-plot">
+                    <summary><h3 style="color: #34495e;">Valuation Dot Plot</h3></summary>
+                    <div class="details-content">
+                        <p style="font-size: 14px; color: var(--label-color); margin-bottom: 20px;">
+                            <strong>Relative Valuation:</strong> Are we expensive or cheap compared to the 3-Year Trend? <br/>
+                            <span style="display:inline-block; width:10px; height:10px; border:2px solid #999; border-radius:50%;"></span> <strong>Hollow Dot:</strong> 1 Year Ago. &nbsp;
+                            <span style="display:inline-block; width:12px; height:12px; background-color:#333; border-radius:50%;"></span> <strong>Solid Dot:</strong> Today.
+                            <br/>
+                            <span style="display:inline-block; width:12px; height:12px; background-color:#d83e3e; border-radius:50%;"></span> <strong>Overvalued (> 70)</strong> Today.
+                            <span style="display:inline-block; width:12px; height:12px; background-color:#777777; border-radius:50%;"></span> <strong>Fairly Valued (> 30 & < 70)</strong> Today.
+                            <span style="display:inline-block; width:12px; height:12px; background-color:#2feb39; border-radius:50%;"></span> <strong>Undervalued (< 30)</strong> Today.
+                        </p>
+
+                        <div class="chart-container" style="height: 350px;">
+                            <div id="valuation-percentile-chart" style="width: 100%; height: 100%;"></div>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- THE FEAR MONITOR (VIX PROXY) -->
+                <details class="chart-group" id="sec-the-fear-monitor-vix-proxy">
+                    <summary><h3>The Fear Monitor (VIX Proxy)</h3></summary>
+                    <div class="details-content">
+                        <p style="font-size: 14px; color: var(--label-color); margin-bottom: 15px;">
+                            <strong>When VIX spikes, markets tumble.</strong> This chart calculates the "Internal VIX" (Realized Volatility) of your specific strategy.<br/>
+                            <span style="display:inline-block; width:12px; height:12px; background-color:#ccc;"></span> <strong>Grey Zones:</strong> Periods of High Stress (Annualized Volatility > 15%).
+                        </p>
+                        
+                        <div class="radio-group" style="justify-content: center; margin-bottom: 15px;">
+                            <label><input type="radio" name="vix-view-mode" value="reb" checked> Rebalanced</label>
+                            <label><input type="radio" name="vix-view-mode" value="noReb"> Non-Rebalanced</label>
+                            <label><input type="radio" name="vix-view-mode" value="benchmark"> Benchmark</label>
+                            <label><input type="radio" name="vix-view-mode" value="equityOnly"> Equity Only</label>
+                            <label><input type="radio" name="vix-view-mode" value="goldOnly"> Gold Only</label>
+                        </div>
+
+                        <div class="chart-container" style="height: 450px;">
+                            <div id="fear-monitor-chart" style="width: 100%; height: 100%;"></div>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="chart-group" id="sec-risk-return-analysis">
+                    <summary><h3>Risk Return Analysis</h3></summary>
+                    <div class="details-content">
+                        <details class="chart-group" id="sec-rolling-returns-rebalanced-strategy">
+                            <summary><h4>Rolling Returns (Rebalanced Strategy)</h4></summary>
+                            <div class="details-content">
+                                <div class="chart-container" style="height: 300px;"><div id="rolling-returns-chart" style="width: 100%; height: 100%;"></div></div>
+                            </div>
+                        </details>
+                        <details class="chart-group" id="sec-rolling-returns-non-rebalanced-strategy">
+                            <summary><h4>Rolling Returns (Non-Rebalanced Strategy)</h4></summary>
+                            <div class="details-content">
+                                <div class="chart-container" style="height: 300px;"><div id="rolling-returns-no-rebalance-chart" style="width: 100%; height: 100%;"></div></div>
+                            </div>
+                        </details>
+                        <details class="chart-group" id="sec-rolling-returns-benchmark">
+                            <summary><h4>Rolling Returns (Benchmark)</h4></summary>
+                            <div class="details-content">
+                                <div class="chart-container" style="height: 300px;"><div id="rolling-returns-benchmark-chart" style="width: 100%; height: 100%;"></div></div>
+                            </div>
+                        </details>
+                        <details class="chart-group" id="sec-rolling-returns-equity-only">
+                            <summary><h4>Rolling Returns (Equity Only)</h4></summary>
+                            <div class="details-content">
+                                <div class="chart-container" style="height: 300px;"><div id="rolling-returns-equityonly-chart" style="width: 100%; height: 100%;"></div></div>
+                            </div>
+                        </details>
+                        <details class="chart-group" id="sec-rolling-returns-gold-only">
+                            <summary><h4>Rolling Returns (Gold Only)</h4></summary>
+                            <div class="details-content">
+                                <div class="chart-container" style="height: 300px;"><div id="rolling-returns-goldonly-chart" style="width: 100%; height: 100%;"></div></div>
+                            </div>
+                        </details>
+                        <details class="chart-group" id="sec-risk-vs-return-scatter-plot">
+                            <summary><h4>Risk vs. Return Scatter Plot</h4></summary>
+                            <div class="details-content">
+                                <div class="chart-container" style="height: 300px;"><div id="risk-return-scatter-plot" style="width: 100%; height: 100%;"></div></div>
+                                <div style="text-align: center; margin-top: 15px;">
+                                    <button id="save-allocation-btn" style="padding: 8px 12px; cursor: pointer; width: auto; margin-right: 10px;">Save Current Allocation</button>
+                                    <button id="clear-saved-btn" style="padding: 8px 12px; cursor: pointer; width: auto;">Clear Saved</button>
+                                </div>
+                                <div id="saved-allocations-list" style="margin-top: 15px;"></div>
+                            </div>
+                        </details>
+                        <details class="chart-group" id="sec-asset-correlation-matrix">
+                            <summary><h4>Asset Correlation Matrix</h4></summary>
+                            <div class="details-content" id="correlation-matrix-container"></div>
+                        </details>
+                    </div>
+                </details>
+
+            </div>
+        </details>
+
+         <details class="chart-group" id="sec-year-on-year-asset-class-performance">
+            <summary><h3>Year on Year Asset Class Performance</h3></summary>
+            <div class="details-content">
+                 <details class="chart-group" id="sec-year-on-year-asset-performance-table">
+                    <summary><h4>Year-on-Year Asset Performance Table</h4></summary>
+                    <div class="details-content" id="yearly-performance-container">
+                        <div style="position: relative;">
+                            <table id="yearly-performance-table" class="yearly-performance-table">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                            <svg id="performance-lines-svg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;"></svg>
+                        </div>
+                    </div>
+                </details>
+                <details class="chart-group" id="sec-year-on-year-asset-rank-chart">
+                    <summary><h4>Year-on-Year Asset Rank Chart</h4></summary>
+                    <div class="details-content">
+                        <div class="chart-container" style="height: 500px;">
+                            <div id="yoy-rank-chart" style="width: 100%; height: 100%;"></div>
+                        </div>
+                    </div>
+                </details>
+                <details class="chart-group" id="sec-month-on-month-asset-rank-chart">
+                    <summary><h4>Month-on-Month Asset Rank Chart</h4></summary>
+                    <div class="details-content">
+                        <div class="chart-container" style="height: 500px;">
+                            <div id="mom-rank-chart" style="width: 100%; height: 100%;"></div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </details>
+
+        <details class="chart-group" id="sec-monte-carlo-simulation">
+            <summary><h3>Monte Carlo Simulation</h3></summary>
+            <div class="details-content" id="mc-results-container">
+                <h3 id="mc-status">Run simulation from the 'Monte Carlo Settings' panel.</h3>
+                <div id="mc-progress-bar-container" style="display: none;">
+                    <div id="mc-progress-bar"></div>
+                </div>
+                <details class="chart-group" id="mc-rebalanced-results" style="display: none;">
+                    <summary><h4>Rebalanced Strategy Results</h4></summary>
+                    <div class="details-content">
+                        <h3>Success Rate: <span id="mc-success-rate-rebalanced"></span></h3>
+                        <h4>Outcome Distribution Funnel</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="mc-funnel-chart-rebalanced" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Distribution of Final Portfolio Values</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="mc-histogram-chart-rebalanced" style="width: 100%; height: 100%;"></div></div>
+                    </div>
+                </details>
+                <details class="chart-group" id="mc-no-rebalance-results" style="display: none;">
+                    <summary><h4>Non-Rebalanced Strategy Results</h4></summary>
+                    <div class="details-content">
+                        <h3>Success Rate: <span id="mc-success-rate-no-rebalance"></span></h3>
+                        <h4>Outcome Distribution Funnel</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="mc-funnel-chart-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+                        <h4 style="margin-top: 30px;">Distribution of Final Portfolio Values</h4>
+                        <div class="chart-container" style="height: 300px;"><div id="mc-histogram-chart-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+                    </div>
+                </details>
+            </div>
+        </details>
+
+
+        <!-- 💰 DEPLOYMENT BATTLE (LUMPSUM VS STP) -->
+        <details class="chart-group" id="deployment-section">
+            <summary><h3 style="color: #2c3e50;">💰 Deployment Battle: Lumpsum vs. SIP</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 20px;">
+                    <strong>The Dilemma:</strong> You have a large amount to invest. Should you put it all in today (Lumpsum) or drip-feed it slowly (STP)? <br/>
+                    Use this tool to simulate the outcome based on your current strategy.
+                </p>
+
+                <!-- Inputs for this section -->
+                <div class="allocation-grid" style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed var(--border-color);">
+                    <div>
+                        <label for="dep-capital">Capital to Deploy (₹)</label>
+                        <input type="number" id="dep-capital" value="3000000" step="100000">
+                    </div>
+                    <div>
+                        <label for="dep-months">STP Duration (Months)</label>
+                        <input type="number" id="dep-months" value="30" step="6">
+                    </div>
+                    <div>
+                        <label for="dep-liquid-rate">Liquid Fund Return (%)</label>
+                        <input type="number" id="dep-liquid-rate" value="6" step="0.5">
+                    </div>
+                    <div style="display:flex; align-items:end;">
+                        <button id="run-deployment-btn" style="padding: 8px;">Run Simulation</button>
+                    </div>
+                </div>
+
+                <!-- Chart 1: Wealth Overtake -->
+                <h4 style="text-align: left; margin-top: 10px;">1. The "Wealth Overtake" Curve</h4>
+                <p style="font-size: 13px; color: #666;">
+                    Comparing the trajectory of <strong>Immediate Entry</strong> vs. <strong>Slow Entry</strong>. 
+                    When Blue is above Orange, Lumpsum is winning.
+                </p>
+                <div class="chart-container" style="height: 350px;">
+                    <div id="dep-wealth-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                <!-- Chart 2: Cost of Hesitation -->
+                <h4 style="text-align: left;">2. The "Cost of Hesitation" (Opportunity Cost)</h4>
+                <p style="font-size: 13px; color: #666;">
+                    <span style="color:#27ae60;">Green Bars:</span> Money you <strong>LOST</strong> by waiting (Lumpsum won). <br/>
+                    <span style="color:#c0392b;">Red Bars:</span> Money you <strong>SAVED</strong> by waiting (STP won/Market Crashed).
+                </p>
+                <div class="chart-container" style="height: 300px;">
+                    <div id="dep-cost-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                <!-- Chart 3: Win Rate Gauge -->
+                <h4 style="text-align: left;">3. Historical Win Rate (Rolling Probability)</h4>
+                <p style="font-size: 13px; color: #666;">
+                    We tested every possible 30-month period in history. How often did Lumpsum beat STP?
+                </p>
+                <div class="chart-container" style="height: 300px;">
+                    <div id="dep-gauge-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+            </div>
+        </details>
+
+
+        <!-- STRATEGY SPECIFIC CRASH OPPORTUNITIES -->
+        <details class="chart-group" id="crash-analysis-section">
+            <summary><h3 style="color: #c0392b;">📉 Strategy-Specific Crash Opportunities</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 20px;">
+                    Don't use generic rules like "-20%". This tool calculates the <strong>Optimal Buying Windows</strong> specific to the volatility of <em>this</em> portfolio.
+                </p>
+
+                <div class="radio-group" style="justify-content: center; margin-bottom: 15px;">
+                    <label><input type="radio" name="crash-view-mode" value="reb" checked> Rebalanced</label>
+                    <label><input type="radio" name="crash-view-mode" value="noReb"> Non-Rebalanced</label>
+                    <label><input type="radio" name="crash-view-mode" value="benchmark"> Benchmark</label>
+                    <label><input type="radio" name="crash-view-mode" value="equityOnly"> Equity Only</label>
+                    <label><input type="radio" name="crash-view-mode" value="goldOnly"> Gold Only</label>
+                </div>
+
+                <!-- 1. The Sweet Spot Scatter -->
+                <h4 style="text-align: left; margin-top: 10px;">1. The "Sweet Spot" Scatter (Pain vs. Gain)</h4>
+                <p style="font-size: 13px; color: #666;">
+                    <strong>X-Axis:</strong> Drawdown Depth. <strong>Y-Axis:</strong> 3-Year Future Return.<br/>
+                    Notice the curve? The deeper the drawdown today, the higher the mathematical probability of massive returns tomorrow.
+                </p>
+                <div class="chart-container" style="height: 400px;">
+                    <div id="crash-scatter-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                <!-- 2. The Current Status Gauge -->
+                <h4 style="text-align: left;">2. "Wait vs. Deploy" Gauge (Current Market Status)</h4>
+                <p style="font-size: 13px; color: #666;">
+                    Based on <strong>historical percentiles</strong> for this specific strategy. Are we in a buying zone today?
+                </p>
+                <div class="chart-container" style="height: 300px;">
+                    <div id="crash-gauge-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                <!-- 3. The Opportunity Log -->
+                <h4 style="text-align: left;">3. Historical "Fire Sale" Log</h4>
+                <div style="overflow-x: auto; max-height: 400px; overflow-y: auto;">
+                    <table id="crash-log-table" class="metrics-table" style="font-size: 13px; text-align: center;">
+                        <thead>
+                            <tr>
+                                <th>Crash Date</th>
+                                <th>Drawdown Depth</th>
+                                <th>Severity Tier</th>
+                                <th>Next 1Y Return</th>
+                                <th>Next 3Y Return</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+
+        <!-- ============================================================ -->
+        <!-- 🎲 RANDOM WALK SIMULATION -->
+        <!-- ============================================================ -->
+        <details class="chart-group" id="sec-random-walk-simulation-future-paths">
+            <summary><h3 style="color: #8e44ad;">🎲 Random Walk Simulation (Future Paths)</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 20px;">
+                    <strong>The "Drunkard's Walk":</strong> This projects thousands of possible futures — either from your portfolio's historical Drift and Shocks (bell-curve), or by replaying your <em>actual past months</em> in random order (bootstrap: keeps real crashes).<br/>
+                    It answers: <em>"Even if the average is good, what are the odds I get unlucky?"</em>
+                </p>
+                
+                <h4 id="rw-verdict" style="text-align: left; margin-top: 10px; font-weight: bold; color: #2c3e50;">
+                    Status: Click "Run Random Walk" to generate paths.
+                </h4>
+
+                <div class="chart-container" style="height: 500px;">
+                    <div id="random-walk-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            </div>
+        </details>
+   
+        <details class="chart-group" id="sec-withdrawal-charts">
+            <summary><h3>Withdrawal Charts</h3></summary>
+            <div class="details-content">
+                <h4>Corpus Simulation (With Rebalancing)</h4>
+                <div class="chart-container"><div id="corpus-chart-rebalanced" style="width: 100%; height: 100%;"></div></div>
+                <h4 style="margin-top: 30px;">Corpus Simulation (Without Rebalancing)</h4>
+                <div class="chart-container"><div id="corpus-chart-no-rebalance" style="width: 100%; height: 100%;"></div></div>
+                <h4 style="margin-top: 30px;">Corpus Simulation (Benchmark)</h4>
+                <div class="chart-container"><div id="corpus-chart-benchmark" style="width: 100%; height: 100%;"></div></div>
+                <h4 style="margin-top: 30px;">Corpus Simulation (Equity Only)</h4>
+                <div class="chart-container"><div id="corpus-chart-equityonly" style="width: 100%; height: 100%;"></div></div>
+                <h4 style="margin-top: 30px;">Corpus Simulation (Gold Only)</h4>
+                <div class="chart-container"><div id="corpus-chart-goldonly" style="width: 100%; height: 100%;"></div></div>
+            </div>
+        </details>
+
+        <details class="chart-group" id="bunker-chart-section" style="display:none;">
+            <summary><h3>🛡️ Bunker Analysis (Survival Mode)</h3></summary>
+            <div class="details-content">
+                <p style="font-size:13px; color:#666; margin-bottom:10px;">
+                    <strong>Yellow Line:</strong> Your Cash Reserve (Fortress). <br/>
+                    <strong>Drops:</strong> Used during Crash (Survival). <strong>Rises:</strong> Refilled during Euphoria (Squirrel).
+                </p>
+                <div class="chart-container" style="height: 350px;">
+                    <div id="bunker-balance-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+                <div id="bunker-stats-summary" style="margin-top:15px;"></div>
+               
+                <!-- Chart 2: Withdrawal Source Breakdown -->
+                <h4 style="margin-bottom: 5px; border-top: 1px dashed #ccc; padding-top: 20px;">2. Withdrawal Source Breakdown</h4>
+                <p style="font-size:13px; color:#666; margin-top:0;">
+                    Where did your monthly/quarterly income come from? Hover to see the logic.
+                </p>
+                <div class="chart-container" style="height: 300px;">
+                    <div id="withdrawal-source-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            </div>
+        </details>
+
+        <!-- GUYTON-KLINGER GUARDRAIL ANALYSIS -->
+        <details class="chart-group" id="gk-guardrail-chart-section" style="display:none;">
+            <summary><h3 style="color: #7b1fa2;">📏 Guyton-Klinger Guardrail Analysis</h3></summary>
+            <div class="details-content">
+                <p style="font-size:13px; color:#666; margin-bottom:10px;">
+                    The <strong>purple line</strong> shows your real withdrawal rate (% of portfolio) over time.
+                    When it crosses above the <strong>red upper band</strong>, withdrawals get cut by the adjustment %. 
+                    When it drops below the <strong>green lower band</strong>, withdrawals increase.
+                    The <strong>blue dashed line</strong> is the initial withdrawal rate.
+                </p>
+                <div class="chart-container" style="height: 400px;">
+                    <div id="gk-guardrail-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+                <div id="gk-guardrail-stats" style="margin-top:15px;"></div>
+            </div>
+        </details>
+
+        <details class="chart-group" id="sec-master-transaction-ledger">
+            <summary><h3>📜 Master Transaction Ledger</h3></summary>
+            <div class="details-content">
+                <p style="font-size:13px; color:#666;">
+                    A chronological log of every Withdrawal, Bunker Refill, and Rebalancing Event. 
+                    <span style="background:#e8f5e9; padding:2px 5px; border-radius:3px; border:1px solid #2ecc71;">Green Rows</span> indicate a Rebalance was <strong>avoided</strong> thanks to smart withdrawals.
+                </p>
+                <div style="overflow-x: auto; max-height: 500px; overflow-y: auto; border: 1px solid var(--border-color);">
+                    <table id="master-ledger-table" class="ledger-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 120px;">Date</th>
+                                <th style="width: 150px;">Event Type</th>
+                                <th>Transaction Details (Source & Amount)</th>
+                                <th>Logic / Reason</th>
+                                <th>Allocation (Post-Op)</th>
+                                <th>Equity Value</th>
+                                <th>Gold Value</th>
+                                <th>Total Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <details class="chart-group withdrawal-comparison-section">
+            <summary><h3>Withdrawal Strategies Comparison</h3></summary>
+            <div class="details-content">
+                <div class="inputs-section">
+                    <h4>Inputs Section</h4>
+                    <div class="dynamic-withdrawal-group">
+                        <h4>Dynamic Threshold</h4>
+                        <label for="downside-return-threshold">If portfolio return ≤ [%]...</label>
+                        <input type="number" id="downside-return-threshold" value="0" step="0.1">
+                        <label for="downside-adjustment-pct">...then decrease withdrawal by [%]</label>
+                        <input type="number" id="downside-adjustment-pct" value="10" step="0.1">
+                        <label for="upside-return-threshold" style="margin-top:10px;">If portfolio return > [%]...</label>
+                        <input type="number" id="upside-return-threshold" value="0" step="0.1">
+                        <label for="upside-adjustment-pct">...then increase withdrawal by [%]</label>
+                        <input type="number" id="upside-adjustment-pct" value="0" step="0.1">
+                    </div>
+                     <div class="dynamic-withdrawal-group">
+                        <h4>Proportional Shield</h4>
+                        <label for="proportional-shield-threshold">If return is negative and ≤ [%]...</label>
+                        <input type="number" id="proportional-shield-threshold" value="-0.5" step="0.1">
+                        <label>...then decrease withdrawal by that month's loss %</label>
+                    </div>
+                </div>
+                
+                <div class="results-section">
+                    <h4>Result Section</h4>
+                    <table class="metrics-table" id="withdrawal-strategy-summary-table">
+                        <thead>
+                           <tr>
+                                <th rowspan="2">Strategy</th>
+                                <th rowspan="2">Metric</th>
+                                <th colspan="4">Withdrawal Strategy</th>
+                            </tr>
+                            <tr>
+                                <th>Standard</th>
+                                <th>Dynamic Threshold</th>
+                                <th>Proportional Shield</th>
+                                <th>Guyton-Klinger</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+        
+        <details class="chart-group" id="growth-dynamic-sip-analysis-container" style="display: none;">
+            <summary><h3>Growth Dynamic SIP Investment Log</h3></summary>
+            <div class="details-content">
+                <div id="growth-dynamic-sip-summary"></div>
+                <div style="overflow-x: auto; margin-top: 15px;">
+                    <table id="growth-dynamic-sip-log-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Invested In</th>
+                                <th>Equity Return</th>
+                                <th>Gold Return</th>
+                                <th>Reason for Decision</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Log data will be dynamically inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <details class="chart-group" id="dynamic-sip-analysis-container" style="display: none;">
+            <summary><h3>Value Dynamic SIP Investment Log</h3></summary>
+            <div class="details-content">
+                <div id="dynamic-sip-summary"></div>
+                <div style="overflow-x: auto; margin-top: 15px;">
+                    <table id="dynamic-sip-log-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Invested In</th>
+                                <th>Equity Return</th>
+                                <th>Gold Return</th>
+                                <th>Reason for Decision</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Log data will be dynamically inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+         <details class="chart-group" id="sec-analysis-of-simultaneous-equity-gold-decline">
+            <summary><h3>Analysis of Simultaneous Equity & Gold Declines</h3></summary>
+            <div class="details-content">
+                <p>This table shows every month in the selected period where both Equity and Gold had a negative return, providing context on the portfolio's performance and its subsequent recovery.</p>
+                <div style="overflow-x: auto;"> <!-- Makes the table horizontally scrollable on small screens -->
+                    <table id="correlated-downturns-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Equity % Fall</th>
+                                <th>Gold % Fall</th>
+                                <th>Portfolio % Fall</th>
+                                <th>Equity Loss (₹)</th>
+                                <th>Gold Loss (₹)</th>
+                                <th>Total Portfolio Loss (₹)</th>
+                                <th>Return Next 3 Mo.</th>
+                                <th>Return Next 6 Mo.</th>
+                                <th>Return Next 12 Mo.</th>
+                                <th>Return Next 24 Mo.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Data will be dynamically inserted here by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <details class="chart-group" id="sec-analysis-of-simultaneous-equity-gold-advance">
+            <summary><h3>Analysis of Simultaneous Equity & Gold Advances</h3></summary>
+            <div class="details-content">
+                <p>This table shows every month in the selected period where both Equity and Gold had a positive return.</p>
+                <div style="overflow-x: auto;">
+                    <table id="correlated-upturns-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Equity % Rise</th>
+                                <th>Gold % Rise</th>
+                                <th>Portfolio % Rise</th>
+                                <th>Equity Gain (₹)</th>
+                                <th>Gold Gain (₹)</th>
+                                <th>Total Portfolio Gain (₹)</th>
+                                <th>Return Next 3 Mo.</th>
+                                <th>Return Next 6 Mo.</th>
+                                <th>Return Next 12 Mo.</th>
+                                <th>Return Next 24 Mo.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Data will be dynamically inserted here by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <!-- LAZY LOADED: THE TIMING DILEMMA -->
+        <details class="chart-group" id="timing-dilemma-section">
+            <summary><h3>⏳ The Timing Dilemma: Buy the Dip vs. FOMO vs. Discipline</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 15px;">
+                    Three investors each deploy <strong>₹25,00,000</strong> over the backtest period. Who wins?<br/>
+                    🟢 <strong>Investor A (Buy the Dip):</strong> Only invests on exact local bottoms.<br/>
+                    🔴 <strong>Investor B (FOMO):</strong> Only invests on exact local tops right before a drop.<br/>
+                    🔵 <strong>Investor C (Disciplined):</strong> Dumb Monthly SIP. Ignores the noise.
+                </p>
+
+                <div class="radio-group" style="justify-content: center; margin-bottom: 20px;">
+                    <label><input type="radio" name="timing-strategy-mode" value="reb" checked> Rebalanced</label>
+                    <label><input type="radio" name="timing-strategy-mode" value="noReb"> Non-Rebalanced</label>
+                    <label><input type="radio" name="timing-strategy-mode" value="benchmark"> Benchmark</label>
+                    <label><input type="radio" name="timing-strategy-mode" value="equityOnly"> Equity Only</label>
+                    <label><input type="radio" name="timing-strategy-mode" value="goldOnly"> Gold Only</label>
+                </div>
+
+                <div id="timing-loading-indicator" style="text-align: center; color: #3498db; font-weight: bold; display: none;">
+                    Crunching thousands of data points...
+                </div>
+
+                <div id="timing-content-wrapper" style="display: none;">
+                    <!-- Visual 1: Wealth Trajectory -->
+                    <h4 style="text-align: left;">1. The Wealth Trajectory</h4>
+                    <div class="chart-container" style="height: 350px;">
+                        <div id="timing-wealth-chart" style="width: 100%; height: 100%;"></div>
+                    </div>
+                    
+                    <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                    <!-- Visual 2: The Final Verdict & Pain Index -->
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 300px;">
+                            <h4 style="text-align: left;">2. Final Corpus & XIRR</h4>
+                            <div class="chart-container" style="height: 300px;">
+                                <div id="timing-bar-chart" style="width: 100%; height: 100%;"></div>
+                            </div>
+                        </div>
+                        <div style="flex: 1; min-width: 300px;">
+                            <h4 style="text-align: left;">3. "The Pain Index" (Underwater Amount)</h4>
+                            <p style="font-size: 11px; color: #666; margin-top: -5px;">Area below 0 means Portfolio Value < Capital Invested.</p>
+                            <div class="chart-container" style="height: 300px;">
+                                <div id="timing-underwater-chart" style="width: 100%; height: 100%;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                    <!-- Metrics Table -->
+                    <h4 style="text-align: left;">The Final Breakdown</h4>
+                    <div style="overflow-x: auto;">
+                        <table id="timing-metrics-table" class="metrics-table" style="text-align: center;">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th style="color: #27ae60;">🟢 Buy the Dips (Luckiest)</th>
+                                    <th style="color: #c0392b;">🔴 FOMO Tops (Unluckiest)</th>
+                                    <th style="color: #2980b9;">🔵 Dumb SIP (Disciplined)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </details>
+
+        <!-- LAZY LOADED: THE HORIZON MATRIX -->
+        <details class="chart-group" id="horizon-matrix-section">
+            <summary><h3>📅 The Horizon Matrix: Time vs. Risk</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 15px; text-align: center;">
+                    How does your holding period affect your returns? This heatmap shows the <strong>Annualized Return (CAGR)</strong> for every possible holding period in the backtest.<br/>
+                    <em>Insight: Watch the red squares disappear as you move from left (1 Year) to right (10+ Years).</em>
+                </p>
+
+                <div class="radio-group" style="justify-content: center; margin-bottom: 20px;">
+                    <label><input type="radio" name="horizon-strategy-mode" value="reb" checked> Rebalanced</label>
+                    <label><input type="radio" name="horizon-strategy-mode" value="noReb"> Non-Rebalanced</label>
+                    <label><input type="radio" name="horizon-strategy-mode" value="benchmark"> Benchmark</label>
+                    <label><input type="radio" name="horizon-strategy-mode" value="equityOnly"> Equity Only</label>
+                    <label><input type="radio" name="horizon-strategy-mode" value="goldOnly"> Gold Only</label>
+                </div>
+
+                <div id="horizon-loading-indicator" style="text-align: center; color: #3498db; font-weight: bold; display: none;">
+                    Generating millions of rolling permutations...
+                </div>
+
+                <div id="horizon-content-wrapper" style="display: none;">
+                    
+                    <!-- Visual 1: The Heatmap Matrix -->
+                    <h4 style="text-align: left;">1. Annualized Forward Returns Heatmap</h4>
+                    <div class="heatmap-table-wrapper">
+                        <table id="horizon-heatmap-table" class="heatmap-table">
+                            <!-- Populated by JS -->
+                        </table>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                    <!-- Visual 2 & 3: The Cone & The Odds -->
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 300px;">
+                            <h4 style="text-align: left;">2. The "Cone of Uncertainty" (Min/Max/Avg)</h4>
+                            <p style="font-size: 11px; color: #666; margin-top: -5px;">Notice how the gap between the Best (Green) and Worst (Red) shrinks over time.</p>
+                            <div class="chart-container" style="height: 350px;">
+                                <div id="horizon-cone-chart" style="width: 100%; height: 100%;"></div>
+                            </div>
+                        </div>
+                        <div style="flex: 1; min-width: 300px;">
+                            <h4 style="text-align: left;">3. The "Win Probability" Profile</h4>
+                            <p style="font-size: 11px; color: #666; margin-top: -5px;">What are the mathematical odds of making money based on holding period?</p>
+                            <div class="chart-container" style="height: 350px;">
+                                <div id="horizon-prob-chart" style="width: 100%; height: 100%;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </details>
+
+        <!-- LAZY LOADED: ASSET CORRELATION -->
+        <details class="chart-group" id="correlation-charts-section">
+            <summary><h3>🔗 Dynamic Asset Correlation (Equity vs. Gold)</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 15px;">
+                    This section analyzes the raw mathematical relationship between Equity and Gold. <br/>
+                    <strong>+1.0</strong> = They move perfectly together. <strong>0.0</strong> = No relationship. <strong>-1.0</strong> = They move in exactly opposite directions (Perfect Hedges).
+                </p>
+
+                <div id="correlation-loading-indicator" style="text-align: center; color: #3498db; font-weight: bold; display: none;">
+                    Calculating dynamic correlations...
+                </div>
+
+                <div id="correlation-content-wrapper" style="display: none;">
+                    
+                    <!-- Visual 1: 7 Years Rolling Correlation -->
+                    <h4 style="text-align: left;">1. Rolling 7 Years Correlation (Crisis Indicator)</h4>
+                    <p style="font-size: 11px; color: #666; margin-top: -5px;">
+                        How the relationship shifts over time. Notice how correlation often drops below zero (turns green) during major market crashes, proving Gold acts as a parachute exactly when Equity fails.
+                    </p>
+                    <div class="chart-container" style="height: 350px;">
+                        <div id="rolling-correlation-chart" style="width: 100%; height: 100%;"></div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                    <!-- Visual 2: Term Structure of Correlation (1Y to Max Years) -->
+                    <h4 style="text-align: left;">2. Correlation by Holding Period (Term Structure)</h4>
+                    <p style="font-size: 11px; color: #666; margin-top: -5px;">
+                        Does holding assets longer improve their diversification? This shows the correlation of cumulative returns over 1 Year, 2 Years, 3 Years, etc.
+                    </p>
+                    <div class="chart-container" style="height: 350px;">
+                        <div id="horizon-correlation-chart" style="width: 100%; height: 100%;"></div>
+                    </div>
+
+                </div>
+            </div>
+        </details>
+
+        <!-- LAZY LOADED: VOLATILITY HARVESTING -->
+        <details class="chart-group" id="harvest-charts-section">
+            <summary><h3>🌾 Volatility Harvesting (Shannon's Demon)</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 15px;">
+                    <strong>What is this?</strong> Markets zig and zag. Volatility Harvesting is the mechanical process of skimming profits from the asset that "zigged" and injecting it into the asset that "zagged."<br/>
+                    <strong>Why does it matter?</strong> It forces you to "Buy Low and Sell High" mathematically. It proves if Rebalancing is actually making you extra money (Positive Alpha) or just costing you momentum (Negative Alpha).
+                </p>
+
+                <div id="harvest-loading-indicator" style="text-align: center; color: #3498db; font-weight: bold; display: none;">
+                    Harvesting data...
+                </div>
+
+                <div id="harvest-content-wrapper" style="display: none;">
+                    
+                    <!-- Visual 1: Cumulative Alpha -->
+                    <h4 style="text-align: left;">1. The Alpha Generator (Rebalanced minus Drifting)</h4>
+                    <p style="font-size: 11px; color: #666; margin-top: -5px;">
+                        The exact Rupee difference between the Rebalanced strategy and the Non-Rebalanced strategy. <span style="color:#27ae60; font-weight:bold;">Green means Rebalancing won.</span> <span style="color:#c0392b; font-weight:bold;">Red means letting it drift won.</span>
+                    </p>
+                    <div class="chart-container" style="height: 350px;">
+                        <div id="harvest-alpha-chart" style="width: 100%; height: 100%;"></div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                    <!-- Visual 2: The Free Lunch (Risk Reduction) -->
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 300px;">
+                            <h4 style="text-align: left;">2. The "Free Lunch" (Risk Reduction)</h4>
+                            <p style="font-size: 11px; color: #666; margin-top: -5px;">Annualized Volatility (Risk). Notice how the Rebalanced portfolio's risk is lower than the individual assets.</p>
+                            <div class="chart-container" style="height: 300px;">
+                                <div id="harvest-vol-chart" style="width: 100%; height: 100%;"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Visual 3: Harvesting Ledger -->
+                        <div style="flex: 1; min-width: 300px;">
+                            <h4 style="text-align: left;">3. The Harvesting Ledger</h4>
+                            <p style="font-size: 11px; color: #666; margin-top: -5px;">The mechanics of your rebalancing trades.</p>
+                            <div style="overflow-x: auto; margin-top: 20px;">
+                                <table id="harvest-metrics-table" class="metrics-table" style="text-align: center;">
+                                    <tbody>
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </details>
+
+        <!-- LAZY LOADED: AFTER THE WORST MONTHS (RECOVERY TRACKER) -->
+        <details class="chart-group" id="worst-months-section">
+            <summary><h3>🩹 After the Worst Months: Recovery Tracker</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 15px; text-align: center;">
+                    What happened <strong>after</strong> the 10 worst single months for the selected strategy?<br/>
+                    <span style="color:#c0392b; font-weight:bold;">Red</span> = still down &nbsp;•&nbsp; <span style="color:#27ae60; font-weight:bold;">Green/Blue/Purple</span> = recovered &nbsp;•&nbsp; <em>Insight: one terrible month rarely decides the 5-year outcome.</em>
+                </p>
+
+                <div class="radio-group" style="justify-content: center; margin-bottom: 20px;">
+                    <label><input type="radio" name="worst-months-strategy-mode" value="reb" checked> Rebalanced</label>
+                    <label><input type="radio" name="worst-months-strategy-mode" value="noReb"> Non-Rebalanced</label>
+                    <label><input type="radio" name="worst-months-strategy-mode" value="benchmark"> Benchmark</label>
+                    <label><input type="radio" name="worst-months-strategy-mode" value="equityOnly"> Equity Only</label>
+                    <label><input type="radio" name="worst-months-strategy-mode" value="goldOnly"> Gold Only</label>
+                </div>
+
+                <div id="worst-months-loading-indicator" style="text-align: center; color: #3498db; font-weight: bold; display: none;">
+                    Hunting down the worst months...
+                </div>
+
+                <div id="worst-months-content-wrapper" style="display: none;">
+
+                    <!-- Visual 1: Forward Recovery Bars -->
+                    <h4 style="text-align: left;">1. Recovery After Each Worst Month (Total Return)</h4>
+                    <p style="font-size: 11px; color: #666; margin-top: -5px;">Grouped bars per crash month: 1-year, 5-year and 10-year total returns from that month's low. Missing bars mean the window hasn't finished yet.</p>
+                    <div class="chart-container" style="height: 420px;">
+                        <div id="worst-months-chart" style="width: 100%; height: 100%;"></div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                    <!-- Visual 2: Worst-Months Ledger -->
+                    <h4 style="text-align: left;">2. The Worst-Months Ledger</h4>
+                    <div style="overflow-x: auto;">
+                        <table id="worst-months-table" class="metrics-table" style="text-align: center;">
+                            <thead>
+                                <tr>
+                                    <th>Worst Month</th>
+                                    <th>That Month</th>
+                                    <th>1Y After</th>
+                                    <th>5Y After</th>
+                                    <th>10Y After</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </details>
+
+        <!-- LAZY LOADED: MONTHLY RETURN DISTRIBUTION (RETURN STACK) -->
+        <details class="chart-group" id="return-dist-section">
+            <summary><h3>📊 Monthly Return Distribution (Return Stack)</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 14px; color: var(--label-color); margin-bottom: 15px; text-align: center;">
+                    Every single month of the backtest, stacked into buckets — just like the classic return-distribution figure.<br/>
+                    <span style="color:#c0392b; font-weight:bold;">Red buckets</span> = losing months &nbsp;•&nbsp; <span style="color:#27ae60; font-weight:bold;">Green buckets</span> = winning months &nbsp;•&nbsp; <em>Insight: most months are small; a few big months do the heavy lifting.</em>
+                </p>
+
+                <div class="radio-group" style="justify-content: center; margin-bottom: 20px;">
+                    <label><input type="radio" name="return-dist-strategy-mode" value="reb" checked> Rebalanced</label>
+                    <label><input type="radio" name="return-dist-strategy-mode" value="noReb"> Non-Rebalanced</label>
+                    <label><input type="radio" name="return-dist-strategy-mode" value="benchmark"> Benchmark</label>
+                    <label><input type="radio" name="return-dist-strategy-mode" value="equityOnly"> Equity Only</label>
+                    <label><input type="radio" name="return-dist-strategy-mode" value="goldOnly"> Gold Only</label>
+                </div>
+
+                <div id="return-dist-loading-indicator" style="text-align: center; color: #3498db; font-weight: bold; display: none;">
+                    Stacking every month...
+                </div>
+
+                <div id="return-dist-content-wrapper" style="display: none;">
+
+                    <!-- Visual 1: Bucket Counts -->
+                    <h4 style="text-align: left;">1. How Months Split Across Buckets</h4>
+                    <p style="font-size: 11px; color: #666; margin-top: -5px;">Number of months that fell in each return bucket. Taller green bars = consistency; tall red tails = crash-prone.</p>
+                    <div class="chart-container" style="height: 380px;">
+                        <div id="return-dist-chart" style="width: 100%; height: 100%;"></div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px dashed var(--border-color); margin: 30px 0;">
+
+                    <!-- Visual 2: The Return Stack -->
+                    <h4 style="text-align: left;">2. The Month-wise Stack (every month, bucketed)</h4>
+                    <p style="font-size: 11px; color: #666; margin-top: -5px;">Each column is a bucket, each cell one month (best first). Hover a cell for its date.</p>
+                    <div style="overflow-x: auto;">
+                        <table id="return-dist-table" class="metrics-table" style="text-align: center;">
+                            <thead>
+                                <!-- Populated by JS -->
+                            </thead>
+                            <tbody>
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </details>
+
+    </div>
+
+</div>
+
+<button id="theme-toggle">🌙</button>
+
+<div id="comparison-tooltip"></div>
+<script id="mc-worker-script" type="javascript/worker">
+
+    function rebalance(portfolio, total, targetAlloc) {
+        for (let asset in portfolio) {
+            if(targetAlloc[asset] > 0) {
+                portfolio[asset] = total * targetAlloc[asset];
+            }
+        }
+    }
+
+    function runBacktest(data, targetAlloc, options) {
+        const {
+            lumpsumAmount = 0, useSip = false, sipDuration = 12, monthlySipAmount = 0,
+            monthlyWithdrawal = 0, inflationRate = 0, withdrawalDelayYears = 0,
+            withRebalance = false, rebalanceFrequency = 12
+        } = options;
+        const activeTargetAlloc = Object.fromEntries(Object.entries(targetAlloc).filter(([, alloc]) => alloc > 0));
+        if (Object.keys(activeTargetAlloc).length === 0) {
+            const arr = new Array(data.length).fill(useSip ? 0 : lumpsumAmount);
+            return { history: arr };
+        }
+        const initialCapital = useSip ? 0 : lumpsumAmount;
+        let portfolio = {}; portfolio_noW = {};
+        // NEW: Track Cost Basis per asset to calculate P/L on sells
+        for (const asset in activeTargetAlloc) {
+            portfolio[asset] = initialCapital * activeTargetAlloc[asset];
+        }
+        let history = [initialCapital];
+        let currentMonthlyWithdrawal = monthlyWithdrawal;
+        const withdrawalStartMonth = (withdrawalDelayYears * 12) + (useSip ? sipDuration : 0);
+        if (withdrawalDelayYears > 0 && inflationRate > 0) {
+            currentMonthlyWithdrawal *= Math.pow(1 + inflationRate, useSip ? withdrawalDelayYears + (sipDuration/12) : withdrawalDelayYears);
+        }
+        for (let i = 1; i < data.length; i++) {
+            const curr = data[i], prev = data[i - 1];
+            for (let k in portfolio) {
+                const assetReturn = (prev[k] > 0) ? (curr[k] / prev[k]) - 1 : 0;
+                portfolio[k] = (portfolio[k] || 0) * (1 + assetReturn);
+
+            }
+            if (useSip && i <= sipDuration) {
+                for(const asset in activeTargetAlloc) {
+                    portfolio[asset] = (portfolio[asset] || 0) + monthlySipAmount * activeTargetAlloc[asset];
+                }
+            }
+            let totalAfterGrowth = Object.values(portfolio).reduce((a, b) => a + b, 0);
+            if (withRebalance && (!useSip || i > sipDuration) && (i % rebalanceFrequency === 0)) {
+                rebalance(portfolio, totalAfterGrowth, activeTargetAlloc);
+                totalAfterGrowth = Object.values(portfolio).reduce((a, b) => a + b, 0);
+            }
+            let finalTotal = totalAfterGrowth;
+            if (monthlyWithdrawal > 0 && i > withdrawalStartMonth) {
+                if ((i - withdrawalStartMonth - 1) > 0 && (i - withdrawalStartMonth - 1) % 12 === 0) {
+                    currentMonthlyWithdrawal *= (1 + inflationRate);
+                }
+                const withdrawalAmount = Math.min(currentMonthlyWithdrawal, finalTotal);
+                const reductionFactor = finalTotal > 0 ? (finalTotal - withdrawalAmount) / finalTotal : 0;
+                for (let k in portfolio) portfolio[k] *= reductionFactor;
+                finalTotal = Object.values(portfolio).reduce((a,b) => a+b, 0);
+            }
+            history.push(finalTotal);
+        }
+        return { history };
+    }
+    function randomNormal() {
+        let u = 0, v = 0;
+        while(u === 0) u = Math.random();
+        while(v === 0) v = Math.random();
+        return Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
+    }
+    function generateSimulatedPath(stats, numMonths) {
+        const { assets, means, cholesky } = stats;
+        const n = assets.length;
+        const monthlyReturns = [];
+        for (let m = 0; m < numMonths; m++) {
+            const uncorrelatedRandoms = Array.from({ length: n }, randomNormal);
+            const correlatedRandoms = Array(n).fill(0);
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    correlatedRandoms[i] += cholesky[i][j] * uncorrelatedRandoms[j];
+                }
+            }
+            const monthReturn = {};
+            assets.forEach((asset, i) => {
+                monthReturn[asset] = Math.exp(means[asset] + correlatedRandoms[i]) - 1;
+            });
+            monthlyReturns.push(monthReturn);
+        }
+        return monthlyReturns;
+    }
+    self.onmessage = function(e) {
+        const { numSims, numMonths, stats, targetAlloc, optionsReb, optionsNoReb } = e.data;
+        const { assets: activeAssets } = stats;
+        let finalValuesReb = [], successCountReb = 0;
+        let finalValuesNoReb = [], successCountNoReb = 0;
+        const valuesByMonthReb = Array.from({ length: numMonths + 1 }, () => []);
+        const valuesByMonthNoReb = Array.from({ length: numMonths + 1 }, () => []);
+        for(let i = 0; i < numSims; i++){
+            const monthlyReturns = generateSimulatedPath(stats, numMonths);
+            const simData = [{date: 'start'}];
+            activeAssets.forEach(asset => simData[0][asset] = 100);
+            for(let m = 0; m < numMonths; m++){
+                const nextPoint = { date: `m${m+1}` };
+                activeAssets.forEach(asset => {
+                    nextPoint[asset] = simData[m][asset] * (1 + monthlyReturns[m][asset]);
+                });
+                simData.push(nextPoint);
+            }
+            const resultReb = runBacktest(simData, targetAlloc, optionsReb);
+            resultReb.history.forEach((val, month) => { valuesByMonthReb[month].push(val); });
+            const finalValueReb = resultReb.history.slice(-1)[0];
+            finalValuesReb.push(finalValueReb);
+            if(finalValueReb > 0) successCountReb++;
+            const resultNoReb = runBacktest(simData, targetAlloc, optionsNoReb);
+            resultNoReb.history.forEach((val, month) => { valuesByMonthNoReb[month].push(val); });
+            const finalValueNoReb = resultNoReb.history.slice(-1)[0];
+            finalValuesNoReb.push(finalValueNoReb);
+            if(finalValueNoReb > 0) successCountNoReb++;
+            if ((i + 1) % 50 === 0 || i === numSims - 1) { 
+                self.postMessage({ type: 'progress', progress: (i + 1) / numSims * 100 });
+            }
+        }
+        const calculatePercentiles = (valuesByMonth) => {
+            const percentiles = { p10: [], p25: [], p50: [], p75: [], p90: [] };
+            const percentilePoints = { p10: 0.10, p25: 0.25, p50: 0.50, p75: 0.75, p90: 0.90 };
+            for (let m = 0; m <= numMonths; m++) {
+                const values = valuesByMonth[m].sort((a, b) => a - b);
+                for (const key in percentiles) {
+                    const index = Math.floor(percentilePoints[key] * (numSims - 1));
+                    percentiles[key].push(values[index]);
+                }
+            }
+            return percentiles;
+        };
+        self.postMessage({
+            type: 'complete',
+            results: {
+                rebalanced: { percentileData: calculatePercentiles(valuesByMonthReb), finalValues: finalValuesReb, successCount: successCountReb },
+                noRebalance: { percentileData: calculatePercentiles(valuesByMonthNoReb), finalValues: finalValuesNoReb, successCount: successCountNoReb }
+            }
+        });
+    };
+</script>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

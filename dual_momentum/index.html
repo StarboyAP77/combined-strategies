@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- CRIT-13: CSP must be the FIRST child of <head> (before any other
+         element) or browsers ignore it. Note style-src 'unsafe-inline' is
+         REQUIRED: charts-core.js and several charts-s*.js assign
+         element.style.cssText / .style.color inline, and app.js builds the
+         ECharts-missing boot banner with .style.cssText. Without it the page
+         renders unstyled. Inline *event handlers* are NOT used anywhere —
+         that is what script-src 'self' would otherwise break. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Momentum Asset Switching (Post-Tax)</title>
+    <!-- M7: primary ECharts CDN with automatic fallback to unpkg if jsdelivr
+         is blocked/offline. All chart paths additionally typeof-echarts guard,
+         so a double-CDN failure still boots tables + shows a banner.
+         CRIT-13: the loader now lives in js/vendor-echarts.js because an inline
+         onerror= handler is blocked by the CSP above. -->
+    <script src="js/vendor-echarts.js"></script>
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/print.css" media="print">
+    <style>
+        /* Selective PDF export: dialog + artifacts (screen only; print.css handles paper) */
+        #export-dialog { border: 1px solid var(--border-color, #ddd); border-radius: 8px; padding: 20px 22px; max-width: 480px; width: calc(100vw - 40px); background: var(--card-bg-color, #fff); color: var(--text-color, #333); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+        #export-dialog:not([open]) { display: none; }
+        #export-dialog::backdrop { background: rgba(0,0,0,.45); }
+        #export-dialog h3 { margin: 0 0 6px; }
+        .export-dialog-sub { font-size: 13px; margin: 0 0 12px; }
+        .export-dialog-config { display: flex; gap: 8px; align-items: center; font-weight: 700; font-size: 14px; margin-bottom: 10px; cursor: pointer; }
+        #export-section-list { display: flex; flex-direction: column; gap: 4px; max-height: 46vh; overflow-y: auto; border: 1px solid var(--border-color, #ddd); border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; }
+        .export-dialog-row { display: flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 400; margin: 0; cursor: pointer; }
+        .export-dialog-row input[type="checkbox"] { width: auto; margin: 0; }
+        #export-dialog-warn { min-height: 18px; font-size: 13px; color: #c0392b; margin: 0 0 8px; }
+        .export-dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .export-dialog-actions button { width: auto; margin-top: 0; }
+        #export-confirm { background-color: #27ae60; }
+        #export-confirm:hover { background-color: #1e8449; }
+        .export-hidden { display: none !important; }
+        #export-config-summary { border: 1px solid var(--border-color, #ddd); border-radius: 8px; padding: 16px 18px; background: var(--card-bg-color, #fff); }
+        #export-config-summary h3 { text-align: left; margin-bottom: 4px; }
+        .export-config-stamp { font-size: 12px; opacity: .75; margin: 0 0 10px; }
+        #export-config-summary table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        #export-config-summary td { border: 1px solid var(--border-color, #ddd); padding: 6px 10px; text-align: left; }
+        #export-config-summary td:first-child { width: 55%; }
+        /* Screen: keep the export artifact print-only (no pre-print flash) — print.css re-enables it. */
+        #export-config-summary { display: none; }
+    </style>
+<body>
+
+<div class="container">
+    <!-- CONTROLS SIDEBAR -->
+    <div class="controls">
+        <details class="control-group" open>
+            <summary><h3>Data Source</h3></summary>
+            <div class="details-content">
+                <div class="input-group">
+                    <label for="equityIndex">Equity Index</label>
+                    <select id="equityIndex" disabled>
+                        <option value="nseMidcap150Mom50" selected>NSE Midcap 150 Momentum 50</option>
+                        <option value="bseMidcap150Mom30">BSE Midcap 150 Momentum 30</option>
+                    </select>
+                </div>
+            </div>
+        </details>
+
+        <details class="control-group" open>
+            <summary><h3>Time Frame</h3></summary>
+            <div class="details-content">
+                <div class="input-group">
+                    <label for="startDate">Start Date</label>
+                    <select id="startDate"></select>
+                </div>
+                <div class="input-group">
+                    <label for="endDate">End Date</label>
+                    <select id="endDate"></select>
+                </div>
+            </div>
+        </details>
+
+        <details class="control-group" open>
+            <summary><h3>Strategy Config</h3></summary>
+            <div class="details-content">
+                <div class="input-group">
+                    <label for="lookbackPeriod">Lookback Period (months)</label>
+                    <input type="number" id="lookbackPeriod" value="3">
+                </div>
+                <div class="input-group">
+                    <label for="initialCapital">Initial Capital (₹)</label>
+                    <input type="number" id="initialCapital" value="2500000">
+                </div>
+                <div class="input-group">
+                    <label for="startingAsset">Starting Asset</label>
+                    <select id="startingAsset">
+                        <option value="EQUITY" selected>EQUITY</option>
+                        <option value="GOLD">GOLD</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="minMomentumThreshold">Min. Momentum Threshold (%)</label>
+                    <input type="number" id="minMomentumThreshold" value="5" step="0.5">
+                </div>
+                <div class="input-group">
+                    <label for="minMomentumDivergence">Min. Momentum Divergence (%)</label>
+                    <input type="number" id="minMomentumDivergence" value="1" step="0.5">
+                </div>
+                <!-- CRIT-10: risk-free rate was hardcoded at 6% in app.js, so
+                     Sharpe/Sortino silently moved with nothing on screen. -->
+                <div class="input-group">
+                    <label for="riskFreeRate">Risk-Free Rate (%)</label>
+                    <input type="number" id="riskFreeRate" min="0" max="20" step="0.1" value="6">
+                    <small style="display: block; margin-top: 4px; font-size: 11px; color: #888;">Used for Sharpe / Sortino excess-return denominators.</small>
+                </div>
+                <!-- WARN-14: transaction cost is charged once per switch,
+                     round-trip, in addition to the capital-gains tax above. -->
+                <div class="input-group">
+                    <label for="transactionCostPct">Transaction Cost / Switch (%)</label>
+                    <input type="number" id="transactionCostPct" min="0" max="5" step="0.05" value="0.2">
+                    <small style="display: block; margin-top: 4px; font-size: 11px; color: #888;">Round-trip charge applied once per asset switch (default 0.2%).</small>
+                </div>
+            </div>
+        </details>
+
+        <details class="control-group" open>
+            <summary><h3>Tax Config (Real Money)</h3></summary>
+            <div class="details-content">
+                <div class="input-group">
+                    <label for="shortTermTaxRate">Short-Term Tax Rate (%)</label>
+                    <input type="number" id="shortTermTaxRate" value="20" step="0.1">
+                </div>
+                <div class="input-group">
+                    <label for="longTermTaxRate">Long-Term Tax Rate (%)</label>
+                    <input type="number" id="longTermTaxRate" value="12.5" step="0.1">
+                </div>
+                <div class="input-group">
+                    <label for="longTermExemptionLimit">LTG Exemption Limit (₹)</label>
+                    <input type="number" id="longTermExemptionLimit" value="125000">
+                </div>
+            </div>
+        </details>
+
+        <details class="control-group">
+            <summary><h3>Withdrawal Config</h3></summary>
+            <div class="details-content">
+                <div class="input-group">
+                    <label for="withdrawalInitialCapital">Initial Capital (₹)</label>
+                    <input type="number" id="withdrawalInitialCapital" value="2500000">
+                </div>
+                <div class="input-group">
+                    <label for="monthlyWithdrawal">Monthly Withdrawal (₹)</label>
+                    <input type="number" id="monthlyWithdrawal" value="20000">
+                </div>
+                <div class="input-group">
+                    <label for="yearlyInflation">Yearly Inflation (%)</label>
+                    <input type="number" id="yearlyInflation" value="4" step="0.1">
+                </div>
+            </div>
+        </details>
+    </div>
+
+    <!-- MAIN RESULTS AREA -->
+    <div class="results">
+        <details class="chart-group" data-lazy="perf" open>
+            <summary><h3>Strategy Performance</h3></summary>
+            <div class="details-content">
+                <div style="text-align: right; margin-bottom: 10px;">
+                    <button id="scaleToggleBtn" style="width: auto;">Switch to Log Scale</button>
+                </div>
+                <div id="performanceChart" class="chart-container main-chart"></div>
+            </div>
+        </details>
+
+         <!-- ================= EXISTING CHARTS & LOGS ================= -->
+
+        <details class="chart-group" data-lazy="withdrawal">
+            <summary><h3>Withdrawal Performance</h3></summary>
+            <div class="details-content">
+                <div style="text-align: right; margin-bottom: 10px;">
+                    <button id="withdrawalScaleToggleBtn" style="width: auto;">Switch to Log Scale</button>
+                </div>
+                <div id="withdrawalChart" class="chart-container main-chart"></div>
+            </div>
+        </details>
+
+        <details class="chart-group" data-lazy="metrics">
+            <summary><h3>Performance Metrics</h3></summary>
+            <div class="details-content">
+                <table class="metrics-table" id="metricsTable">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Momentum Strategy</th>
+                            <th>Equity Buy & Hold</th>
+                            <th>Gold Buy & Hold</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </details>
+
+        <details class="chart-group" data-lazy="calendar">
+            <summary><h3>Charts: Calendar Performance</h3></summary>
+            <div class="details-content">
+                <h4>Momentum Strategy - Yearly</h4>
+                <div id="yearlyPerfMomentum" class="chart-container small-chart"></div>
+                <h4>Equity Buy & Hold - Yearly</h4>
+                <div id="yearlyPerfEquity" class="chart-container small-chart"></div>
+                <h4>Gold Buy & Hold - Yearly</h4>
+                <div id="yearlyPerfGold" class="chart-container small-chart"></div>
+            </div>
+        </details>
+
+        <details class="chart-group" data-lazy="monthly">
+            <summary><h3>Charts: Monthly Performance</h3></summary>
+            <div class="details-content">
+                <h4>Momentum Strategy - Monthly</h4>
+                <div id="monthlyPerfMomentum" class="chart-container small-chart"></div>
+                <h4>Equity Buy & Hold - Monthly</h4>
+                <div id="monthlyPerfEquity" class="chart-container small-chart"></div>
+                <h4>Gold Buy & Hold - Monthly</h4>
+                <div id="monthlyPerfGold" class="chart-container small-chart"></div>
+            </div>
+        </details>
+
+        <details class="chart-group" data-lazy="dist">
+            <summary><h3>Trade Distribution (Winners vs. Losers)</h3></summary>
+            <div class="details-content">
+                <p style="text-align: center; font-size: 13px; color: #666;">
+                    Sorted from worst trade to best trade. <br>
+                    <span style="color: #c0392b; font-weight:bold;">Red area</span> = Losers, 
+                    <span style="color: #27ae60; font-weight:bold;">Green area</span> = Winners.
+                </p>
+                <div id="tradeDistributionChart" class="chart-container small-chart"></div>
+            </div>
+        </details>
+
+        <details class="chart-group" data-lazy="drawdown">
+            <summary><h3>Charts: Drawdown</h3></summary>
+            <div class="details-content">
+                <div id="drawdownChart" class="chart-container small-chart"></div>
+            </div>
+        </details>
+
+        <details class="chart-group" data-lazy="tradelog">
+            <summary><h3>Trade Log</h3></summary>
+            <div class="details-content">
+                <table class="trade-log-table" id="tradeLogTable">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Switch From</th>
+                            <th>Switch To</th>
+                            <th>Profit (₹)</th>
+                            <th>Profit (%)</th>
+                            <th>Tax Type</th>
+                            <th>Tax (₹)</th>
+                            <th></th>
+                            <th>Net Proceeds (₹)</th>
+                            <th>Days Held</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </details>
+
+        <!-- Rolling VELOCITY OF WEALTH TABLE -->
+        <details class="chart-group" data-lazy="velocity" open>
+            <summary><h3>⏱️ Rolling Velocity of Wealth (Time to Multiplier)</h3></summary>
+            <div class="details-content">
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    This table analyzes <strong>every possible starting month</strong> in history. It shows the real-world time required to multiply your post-tax corpus.
+                </p>
+                <div style="overflow-x: auto;">
+                    <table id="velocity-wealth-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Milestone</th>
+                                <th>Avg Time (Yrs)</th>
+                                <th>Min Time (Yrs)</th>
+                                <th>Max Time (Yrs)</th>
+                                <th>Success Rate*</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <p style="font-size: 11px; color: #888; margin-top: 10px;">
+                    *Success Rate: % of starting months that successfully reached the goal within the dataset timeframe.
+                </p>
+            </div>
+        </details>
+
+        <hr>
+        <hr>
+
+        <!-- ================= NEW ANALYTICAL TOOLS ================= -->
+        
+       
+        <!-- 1. Drawdown Protection Analysis -->
+        <details class="chart-group" data-lazy="s1">
+            <summary><h3>🛡️ 1. Drawdown Protection Analysis</h3></summary>
+            <div class="details-content">
+                <h4>Protection from Equity Crashes (>10%)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    This table isolates specific periods where the Benchmark crashed by more than 10%. It calculates the <strong>"Crash Shield"</strong>—the difference between the market's drop and your strategy's performance. Ideally, the strategy should be in Gold or Cash during these times.
+                </p>
+                <div style="overflow-x: auto;">
+                    <table id="equity-drawdown-drag-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Period</th>
+                                <th>Benchmark Crash</th>
+                                <th>Strategy Drop</th>
+                                <th>🛡️ Crash Shield</th>
+                                <th>Verdict</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <!-- 2. Bull Rally Lag Analysis -->
+        <!-- REMOVED SUITE 2: 🐂 2. Bull Rally "Lag" Analysis -->
+
+
+        <!-- 3. Resilience & Consistency -->
+        <details class="chart-group" data-lazy="s3">
+            <summary><h3>🛌 3. Resilience & Consistency</h3></summary>
+            <div class="details-content">
+                <h4>"The Sleep Well Horizons" (Probability of Loss)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    This answers: "If I invested at any random month in history and held for X years, what are the odds I lost money?" Comparing the Strategy's failure rate against the Benchmark.
+                </p>
+                <div style="overflow-x: auto;">
+                    <table id="sleep-well-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Holding Period</th>
+                                <th>Benchmark: Chance of Loss</th>
+                                <th>Strategy: Chance of Loss</th>
+                                <th>Benchmark: Worst Return</th>
+                                <th>Strategy: Worst Return</th>
+                                <th>Safety Gain</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <h4 style="margin-top: 30px;">"The Nightmare Months" (Top 5 Worst Market Crashes)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    A stress test against the 5 worst single-month drops in the Benchmark's history. Did the strategy dampen the blow during these "Black Swan" events?
+                </p>
+                <div style="overflow-x: auto;">
+                    <table id="nightmare-months-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Benchmark Drop</th>
+                                <th>Strategy Drop</th>
+                                <th>🛡️ Saved</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <!-- 4. Conviction Builders: Probability -->
+        <details class="chart-group" data-lazy="s4">
+            <summary><h3>🎲 4. Conviction Builders: Probability</h3></summary>
+            <div class="details-content">
+                <h4>Rolling Return Consistency Matrix</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    The ultimate proof of consistency. We analyze every possible holding period window. Notice how the "Range of Returns" narrows and the "Win Rate" improves as your time horizon increases.
+                </p>
+                <div style="overflow-x: auto;">
+                    <table id="rolling-consistency-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Time Horizon</th>
+                                <th>Min Return (Ann.)</th>
+                                <th>Max Return (Ann.)</th>
+                                <th>Average Return</th>
+                                <th>Negative Periods</th>
+                                <th>Beating Inflation (>6%)</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+
+        <!-- 5. Advanced Conviction Tools -->
+        <!-- REMOVED SUITE 5: 🧠 5. Advanced Conviction Tools -->
+
+
+        <!-- 6. Market Cycle Opportunities -->
+        <!-- REMOVED SUITE 6: 🛒 6. Market Cycle Opportunities ("Greed" Dashboard) -->
+
+
+        <!-- 7. Behavioral Armor -->
+        <details class="chart-group" data-lazy="s7">
+            <summary><h3>🙈 7. Behavioral Armor & Structural Proof</h3></summary>
+            <div class="details-content">
+<h4>1. "The Ostrich Effect" (Pain of Checking)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Calculates the probability of seeing a negative return based on how frequently you check your portfolio (Daily vs Monthly vs Yearly). Less checking = Less pain.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="ostrich-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 8. Efficiency & Asymmetry -->
+        <details class="chart-group" data-lazy="s8">
+            <summary><h3>🎯 8. Efficiency & Asymmetry ("Smart Money")</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">3. The "Capture Map" (Upside vs Downside)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    <strong>Goal:</strong> Capture >80% of the Upside but <50% of the Downside. This scatter plot visualizes the strategy's asymmetric edge.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="capture-map-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 9. Institutional Risk -->
+        <details class="chart-group" data-lazy="s9">
+            <summary><h3>🏦 9. Institutional Risk & Probability</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">3. Hurdle Rate Reliability (3-Year Rolling)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    What is the historical probability of beating specific annualized return targets (6%, 12%, 20%) over any 3-year period?
+                </p>
+                <div style="overflow-x: auto;">
+                    <table id="hurdle-probability-table" class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Goal (Annualized)</th>
+                                <th>Benchmark Probability</th>
+                                <th>Strategy Probability</th>
+                                <th>Verdict</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 10. Deep Quant -->
+        <!-- REMOVED SUITE 10: 📐 10. Deep Quant & Statistics -->
+
+
+        <!-- 11. Momentum Quality -->
+        <!-- REMOVED SUITE 11: 🏄 11. Momentum & Trend Quality -->
+
+
+        <!-- 12. Indian Context -->
+        <!-- REMOVED SUITE 12: 🇮🇳 12. Indian Market Context -->
+
+
+        <!-- 13. Institutional Structure -->
+        <details class="chart-group" data-lazy="s13">
+            <summary><h3>🏛️ 13. Institutional Structure</h3></summary>
+            <div class="details-content">
+<h4>1. Efficient Frontier Map</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Maps the Risk (Volatility) vs Return (CAGR) of your portfolio against the theoretical efficiency curve. The goal is to be in the top-left quadrant (High Return, Low Risk).
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="efficient-frontier-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">3. Rolling Volatility (Anxiety Monitor)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Tracks the "Risk Level" of the portfolio over time. Spikes indicate periods of high stress.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="rolling-volatility-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 14. Financial Freedom -->
+        <details class="chart-group" data-lazy="s14">
+            <summary><h3>🚀 14. Financial Freedom (FIRE)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">3. FIRE Stress Test (10-Year Survival)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Simulates retirement at various points in history. Checks if your portfolio would have survived a 10-year retirement period at different withdrawal rates.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="swr-stress-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 15. Fund Manager Pro -->
+        <!-- REMOVED SUITE 15: 👔 15. Fund Manager Pro Suite -->
+
+
+
+        <!-- 16. Sage of Omaha -->
+        <details class="chart-group" data-lazy="s16">
+            <summary><h3>🧙‍♂️ 16. The Sage of Omaha Suite (Buffett)</h3></summary>
+            <div class="details-content">
+<h4>1. The "Snowball Velocity" (Time to Double)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Tracks the "Velocity of Wealth". How many years did it take to double your money (1x to 2x, 2x to 4x)? Shorter bars mean the snowball is rolling faster.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="snowball-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 17. Bridgewater -->
+        <details class="chart-group" data-lazy="s17">
+            <summary><h3>🦈 17. The Bridgewater Suite (Dalio)</h3></summary>
+            <div class="details-content">
+<h4>1. The "Four Seasons" Regime Analyzer</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Classifies market months into 4 economic seasons based on Equity (Growth) and Gold (Inflation) movement. Shows average strategy return in each season.
+                </p>
+                <div class="chart-container" style="height: 400px;">
+                    <div id="four-seasons-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 18. Magellan -->
+        <details class="chart-group" data-lazy="s18">
+            <summary><h3>🧢 18. The Magellan Suite (Lynch)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">3. Portfolio "Personality" (Lynch Categories)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Classifies annual returns into buckets: Fast Growers (>20%), Stalwarts (10-20%), Slow Growers (0-10%), and Cyclicals (<0%).
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="lynch-category-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 19. Cassandra -->
+        <details class="chart-group" data-lazy="s19">
+            <summary><h3>🩺 19. The Cassandra Suite (Burry)</h3></summary>
+            <div class="details-content">
+<h4>1. The "Bubble Gauge" (Z-Score)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Statistical measure of how stretched the price is from its 2-year trend. > 2.0 (Red) suggests overheating; < -2.0 (Green) suggests deep value.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="z-score-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">3. The "Burry Wait" (Underwater Duration)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Tracks how many consecutive months the portfolio spent below its previous peak. Measures the "Time Pain" of holding.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="underwater-duration-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 20. Antifragile -->
+        <!-- REMOVED SUITE 20: 🦢 20. The Antifragile Suite (Taleb) -->
+
+
+        <!-- 21. Speculator -->
+        <details class="chart-group" data-lazy="s21">
+            <summary><h3>🎩 21. The Speculator's Suite (Livermore)</h3></summary>
+            <div class="details-content">
+<h4>1. The "Line of Least Resistance"</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Compares the Price vs 10-Month Trend Line. Livermore only traded in the direction of the general trend.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="resistance-line-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">2. The "Pivotal Points" (ATH Steps)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Tracks New All-Time Highs. The "Staircase" chart shows when the portfolio established a new floor in wealth.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="breakout-step-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 22. Adam Smith -->
+        <!-- REMOVED SUITE 22: 📜 22. The Adam Smith Suite (Productivity) -->
+
+
+        <!-- 23. Founding Father -->
+        <!-- REMOVED SUITE 23: ⚡ 23. The Founding Father Suite (Franklin) -->
+
+
+        <!-- 24. Medallion -->
+        <details class="chart-group" data-lazy="s24">
+            <summary><h3>🧮 24. The Medallion Suite (Simons)</h3></summary>
+            <div class="details-content">
+<h4>1. The "Ghost Pattern" (Seasonality)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Analyzes performance by Month of Year. Identifies seasonal habits of the strategy.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="seasonality-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">2. The "Probability Cone" (Projection)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Monte Carlo projection for the next 12 months based on recent volatility and drift.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="probability-cone-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">3. The "Regime Barcode"</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    A heatmap strip showing market regimes over time (Crisis, Correction, Bull).
+                </p>
+                <div class="chart-container" style="height: 250px;">
+                    <div id="regime-barcode-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+                
+                
+</div>
+</details>
+
+        <!-- 25. Quantum -->
+        <!-- REMOVED SUITE 25: ⚛️ 25. The Quantum Suite (Variance) -->
+
+        
+
+        <!-- 26. Dow Theory -->
+        <details class="chart-group" data-lazy="s26">
+            <summary><h3>📰 26. The Dow Theory Suite (Trend Structure)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">2. The "Zig-Zag" Structure</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Filters out noise (< 5%) to show true peaks and troughs. Uptrend = Higher Highs + Higher Lows. Downtrend = Lower Highs + Lower Lows.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="dow-zigzag-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">3. The "Confirmation" Signal</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Checks if both Equity and Gold are in uptrends simultaneously. Green = Confirmed Bull. Red = Confirmed Bear. Yellow = Non-Confirmation (Caution).
+                </p>
+                <div class="chart-container" style="height: 250px;">
+                    <div id="dow-confirmation-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 27. Vanguard -->
+        <details class="chart-group" data-lazy="s27">
+            <summary><h3>🛡️ 27. The Vanguard Suite (Bogle)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">2. The "Gravity Line"</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Price fluctuates, but value grows steadily. The dashed line represents the "Fundamental Gravity" (Geometric Compounding). Price far above = Speculative Premium.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="gravity-line-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">3. "This Too Shall Pass" (Recovery Times)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    A histogram of every correction > 5%. Shows how many months it took to break even. Long bars indicate "Lost Decades".
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="recovery-histogram-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 28. Scuttlebutt -->
+        <details class="chart-group" data-lazy="s28">
+            <summary><h3>🔎 28. The Scuttlebutt Suite (Fisher)</h3></summary>
+            <div class="details-content">
+                <h4>1. The "Growth Channel"</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Uses Log-Linear Regression to find the "Perfect Growth Path". The bands show standard deviations from the trend. Touching the bottom line is often a buying opportunity.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="fisher-channel-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                <h4 style="margin-top: 30px;">2. The "3-Year Thesis" Check</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Rolling 3-Year CAGR. As long as this stays in the green zone (>10%), the long-term growth thesis holds, regardless of short-term noise.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="fisher-thesis-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                <h4 style="margin-top: 30px;">3. The "Quiet Room" (Annual Check)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Filters out all daily/monthly noise. This is what the chart looks like if you only logged in once a year on Jan 1st.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="fisher-quiet-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            </div>
+        </details>
+
+        <!-- 29. Contrarian -->
+        <details class="chart-group" data-lazy="s29">
+            <summary><h3>🌍 29. The Contrarian Suite (Templeton)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">2. The "Templeton Cycle"</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Phase plot of Momentum (X) vs Valuation (Y). Visualizes the cycle: Pessimism -> Skepticism -> Optimism -> Euphoria.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="templeton-cycle-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">3. The "Bargain Hunter's" Oscillator</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    A normalized score (0-100) indicating how "Cheap" the portfolio is relative to its own history. < 20 indicates Max Pessimism.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="bargain-oscillator-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 30. PTJ -->
+        <!-- REMOVED SUITE 30: 🦅 30. The Paul Tudor Jones Suite (Trading) -->
+
+
+        <!-- 31. Druckenmiller -->
+        <details class="chart-group" data-lazy="s31">
+            <summary><h3>🦁 31. The Stanley Druckenmiller Suite</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">2. The "Home Run" Distribution</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Compares frequency of Big Wins (>5%) vs Big Losses (<-5%). Druckenmiller aims for a "fat right tail" (more big wins).
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="druck-homerun-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 32. T. Rowe Price -->
+        <!-- REMOVED SUITE 32: 🌱 32. The T. Rowe Price Jr. Suite (Growth) -->
+
+
+        <!-- 33. Greenblatt -->
+        <!-- REMOVED SUITE 33: 📘 33. The Joel Greenblatt Suite (Value) -->
+
+
+        <!-- 34. Alok Jain -->
+        <!-- REMOVED SUITE 34: 🚀 34. The Weekend Investing Suite (Alok Jain) -->
+
+
+        <!-- 35. RRG -->
+        <details class="chart-group" data-lazy="s35">
+            <summary><h3>🔄 35. The RRG Suite (Relative Rotation)</h3></summary>
+            <div class="details-content">
+<h4>1. Relative Rotation Graph (The Snail Trail)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Maps <strong>Trend (Ratio)</strong> vs <strong>Momentum</strong>. <br>
+                    <span style="color:#27ae60">Green (Leading):</span> Strong trend & momentum. <br>
+                    <span style="color:#c0392b">Red (Lagging):</span> Weak trend & momentum.
+                </p>
+                <div class="chart-container" style="height: 450px;">
+                    <div id="rrg-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">2. Cycle History (Quadrant Strip)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    A historical timeline showing which RRG quadrant the strategy was in. Ideally, you want long periods of Green (Leading).
+                </p>
+                <div class="chart-container" style="height: 200px;">
+                    <div id="rrg-history-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+
+        <!-- 36. Goldman Sachs -->
+        <details class="chart-group" data-lazy="s36">
+            <summary><h3>🏦 36. The Goldman Sachs Suite (Institutional Risk)</h3></summary>
+            <div class="details-content">
+<h4>1. Rolling Beta (Market Sensitivity)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Tracks how sensitive your strategy is to the market. A Beta < 0.5 means your strategy is "Decoupled" from market risk (The Holy Grail).
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="gs-beta-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">2. "Fat Tail" Detector (Distribution)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Compares the frequency of monthly returns. If the Blue bars (Strategy) are shifted to the right of the Red line (Benchmark), you have "Alpha skew".
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="gs-distribution-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">3. Historical Valuation Rank (Percentile)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    "Is this a good time to buy?" Ranks the current drawdown against all history. 90% means it's cheaper than 90% of history.
+                </p>
+                <div class="chart-container" style="height: 250px;">
+                    <div id="gs-percentile-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center; margin:12px 0 6px 0; flex-wrap:wrap;">
+                    <label style="font-size:13px; font-weight:600;">Month:</label>
+                    <select id="gs-percentile-month-select" style="max-width:230px;"></select>
+                    <button id="gs-percentile-play-btn" style="width:auto; padding:6px 12px;">&#9654; Play history</button>
+                    <span id="gs-percentile-month-label" style="font-size:12px; color:#666;"></span>
+                </div>
+                <div class="chart-container small-chart">
+                    <div id="gs-percentile-timeline-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 37. Morgan Stanley -->
+        <details class="chart-group" data-lazy="s37">
+            <summary><h3>🏙️ 37. The Morgan Stanley Suite (Wealth Mgmt)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">2. "The Underwater Mountain" (Pain Topology)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Plots every historical drawdown. <strong>X-Axis:</strong> How deep? <strong>Y-Axis:</strong> How long? You want dots in the bottom-left corner.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="ms-mountain-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 38. World Bank -->
+        <details class="chart-group" data-lazy="s38">
+            <summary><h3>🌐 38. The World Bank Suite (Macro Stability)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">4. The "Crisis Radar" (Stress Tests)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Performance during specific historical global crises (2008, 2020, etc). The further out (Green zone), the better the resilience.
+                </p>
+                <div class="chart-container" style="height: 400px;">
+                    <div id="wb-crisis-radar-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 39. WEF -->
+        <details class="chart-group" data-lazy="s39">
+            <summary><h3>🏔️ 39. The WEF Suite (Global Risks)</h3></summary>
+            <div class="details-content">
+<h4>1. The "Resilience Radar" (Scorecard)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    A multi-dimensional health check: Growth, Defense, Stability, and Recovery Speed.
+                </p>
+                <div class="chart-container" style="height: 400px;">
+                    <div id="wef-radar-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 40. RBI -->
+        <details class="chart-group" data-lazy="s40">
+            <summary><h3>🇮🇳 40. The RBI Suite (Macro-Prudential)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">4. Financial Stability Report (Systemic Stress)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    A heatmap of Volatility + Drawdown. Red spikes indicate systemic instability (2008, 2020). Good strategies suppress these spikes.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="rbi-stress-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">5. Basel III Capital Buffer (VaR 99%)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    <strong>Value at Risk:</strong> "In a 1-in-100 worst case month, how much capital is at risk?" Lower is better.
+                </p>
+                <div class="chart-container" style="height: 250px;">
+                    <div id="rbi-var-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 41. Federal Reserve -->
+        <details class="chart-group" data-lazy="s41">
+            <summary><h3>🇺🇸 41. The Federal Reserve Suite</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">3. The "Soft Landing" Probability</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Probability that the next 12 months will be positive, based on current trend momentum.
+                </p>
+                <div class="chart-container" style="height: 250px;">
+                    <div id="fed-soft-landing-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 42. ADB -->
+        <details class="chart-group" data-lazy="s42">
+            <summary><h3>🌏 42. The Asian Development Bank Suite</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">2. The "Infrastructure Floor" (Worst Case)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Tracks the rolling 1-Year Minimum Return. Does your strategy raise the "floor" (worst-case scenario) compared to the benchmark?
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="adb-infra-floor-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">3. The "Grant Element" (Sortino Ratio)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Rolling Sortino Ratio. Measures efficiency in generating returns without downside volatility.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="adb-sortino-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 43. S&P -->
+        <!-- REMOVED SUITE 43: 🏛️ 43. The S&P Suite (Indices & Ratings) -->
+
+
+        <!-- 44. Moody's -->
+        <details class="chart-group" data-lazy="s44">
+            <summary><h3>📉 44. The Moody's Analytics Suite</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">4. Scenario Analysis (S3 Stress)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Projects value 12 months forward under a "Baseline" scenario (Current Trend) vs an "S3 Stress" scenario (2008 Crisis Repeat).
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="moodys-scenario-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 45. JPMorgan -->
+        <details class="chart-group" data-lazy="s45">
+            <summary><h3>🏦 45. The JPMorgan Chase Suite</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">3. Asymmetric Payoff (Capture Ratios)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    <strong>Upside Capture:</strong> Goal > 80%. <strong>Downside Capture:</strong> Goal < 50%. This defines the "winning edge".
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="jpm-capture-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 46. Morningstar -->
+        <details class="chart-group" data-lazy="s46">
+            <summary><h3>⭐️ 46. The Morningstar Suite (Fund Analysis)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">2. The "Star Rating" Engine (MRAR)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    **Morningstar Risk-Adjusted Return:** Penalizes downside volatility more than Sharpe. Higher bar = Higher Utility for the investor.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="ms-mrar-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">4. Rolling Return Ranges (Box Plot Proxy)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Shows the Max, Min, and Average returns for various holding periods. The Strategy's "Min" bar should be higher than the Benchmark's.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="ms-rolling-ranges-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 47. Bank of America -->
+        <!-- REMOVED SUITE 47: 🇺🇸 47. The Bank of America Suite (Sentiment) -->
+
+
+        <!-- 48. The Verdict -->
+        <details class="chart-group" data-lazy="s48">
+            <summary><h3>⚖️ 48. The Verdict: Was it Worth It?</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">1. The Efficiency Multiplier</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    How much CAGR did you get for every 1% of Volatility? Strategy (Blue) should be higher than Market (Red).
+                </p>
+                <div class="chart-container" style="height: 250px;">
+                    <div id="verdict-efficiency-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+<h4 style="margin-top: 30px;">2. The "Pain Price" (Return per 1% Crash)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    How much CAGR did you earn for every 1% of Max Drawdown endured? This is the ultimate "Sleep Well" ROI.
+                </p>
+                <div class="chart-container" style="height: 250px;">
+                    <div id="verdict-pain-return-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+            
+</div>
+</details>
+
+        <!-- 49. Greed & Fear -->
+        <details class="chart-group" data-lazy="s49">
+            <summary><h3>🐻 49. The "Greed & Fear" Suite (Bottoms)</h3></summary>
+            <div class="details-content">
+<h4 style="margin-top: 30px;">2. The "Discount Detector" (Drawdown)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Visualizes "How cheap is it?". Deeper lines mean bigger discounts. Strategy should ideally have shallower discounts (less loss) than benchmark.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="gf-discount-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 50. Jefferies -->
+        <!-- REMOVED SUITE 50: 🏢 50. The Jefferies Suite (Thematics) -->
+
+
+        <!-- 51. Macquarie -->
+        <details class="chart-group" data-lazy="s51">
+            <summary><h3>🐨 51. The Macquarie Suite (Infrastructure)</h3></summary>
+            <div class="details-content">
+<h4>1. The "Annuity" Factor (Histogram)</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Distribution of monthly returns. A "Tall and Narrow" bell curve indicates annuity-like stability. A "Flat" curve indicates volatility.
+                </p>
+                <div class="chart-container small-chart">
+                    <div id="mac-annuity-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 52. Citigroup -->
+        <!-- REMOVED SUITE 52: 🌐 52. The Citigroup Suite (Surprises) -->
+
+
+        <!-- 53. BlackRock -->
+        <details class="chart-group" data-lazy="s53">
+            <summary><h3>🪨 53. The BlackRock Suite (Aladdin)</h3></summary>
+            <div class="details-content">
+<h4>1. Factor Tilt Radar</h4>
+                <p style="font-size: 13px; color: var(--label-color); margin-bottom: 10px;">
+                    Scores the strategy on Momentum, Safety, Drawdown and Efficiency against the Benchmark. Quality and Value factors are not derivable from a price-only series, so they are not shown.
+                </p>
+                <div class="chart-container" style="height: 400px;">
+                    <div id="br-factor-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+
+                
+</div>
+</details>
+
+        <!-- 54. William O'Neil -->
+        <!-- REMOVED SUITE 54: 📈 54. The William O'Neil Suite (CANSLIM) -->
+
+
+        <!-- 55. David Swensen -->
+        <!-- REMOVED SUITE 55: 🏛️ 55. The David Swensen Suite (Yale) -->
+
+
+    </div>
+</div>
+
+<button id="export-pdf-btn" style="background-color: #2c3e50; margin-top: 20px; border: 1px solid #fff;">
+    📄 Export Full Report (PDF)
+</button>
+
+<dialog id="export-dialog" aria-labelledby="export-dialog-title">
+    <h3 id="export-dialog-title">Export Report (PDF)</h3>
+    <p class="export-dialog-sub">Choose what to include. The print dialog opens next — pick “Save as PDF”.</p>
+    <label class="export-dialog-row export-dialog-config">
+        <input type="checkbox" id="export-include-configs" checked> Include configs (left panel values)
+    </label>
+    <div id="export-section-list" role="group" aria-label="Report sections"></div>
+    <p id="export-dialog-warn" role="alert"></p>
+    <div class="export-dialog-actions">
+        <button id="export-select-all" type="button">Select all</button>
+        <button id="export-clear" type="button">Clear</button>
+        <button id="export-confirm" type="button">Export</button>
+        <button id="export-cancel" type="button">Cancel</button>
+    </div>
+</dialog>
+
+<button id="theme-toggle">🌙</button>
+
+
+    <script src="js/engine.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/charts-core.js"></script>
+    <script src="js/charts-s1.js"></script>
+    <script src="js/charts-s2.js"></script>
+    <script src="js/charts-s3.js"></script>
+    <script src="js/charts-s4.js"></script>
+    <script src="js/charts-s5.js"></script>
+    <script src="js/lazy.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

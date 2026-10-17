@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Investing Strategies</title>
+<style>
+    :root {
+        --bg-color: #121212;
+        --card-bg-color: #1e1e1e;
+        --text-color: #e0e0e0;
+        --label-color: #adadad;
+        --header-color: #ffffff;
+        --border-color: #444;
+        --shadow-color: rgba(0,0,0,0.4);
+        --accent-color: #3498db;
+    }
+
+    @media (prefers-color-scheme: light) {
+        :root {
+            --bg-color: #f4f7fa;
+            --card-bg-color: #ffffff;
+            --text-color: #333;
+            --label-color: #555;
+            --header-color: #2c3e50;
+            --border-color: #eef;
+            --shadow-color: rgba(0,0,0,0.08);
+            --accent-color: #3498db;
+        }
+    }
+
+    * {
+        box-sizing: border-box;
+    }
+
+    html, body {
+        height: 100%;
+    }
+
+    body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        padding: 2rem;
+    }
+
+    h1 {
+        margin: 0 0 2.5rem;
+        font-size: 1.6rem;
+        font-weight: 600;
+        color: var(--header-color);
+        letter-spacing: 0.02em;
+    }
+
+    .cards {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        justify-content: center;
+        gap: 1.75rem;
+        width: 100%;
+        max-width: 860px;
+    }
+
+    .card {
+        flex: 1 1 0;
+        max-width: 380px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 2.5rem 2rem;
+        background-color: var(--card-bg-color);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
+        border-radius: 14px;
+        box-shadow: 0 4px 14px var(--shadow-color);
+        text-decoration: none;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+
+    .card:hover,
+    .card:focus {
+        transform: translateY(-4px);
+        border-color: var(--accent-color);
+        box-shadow: 0 10px 24px var(--shadow-color);
+        outline: none;
+    }
+
+    .card h2 {
+        margin: 0 0 0.6rem;
+        font-size: 1.35rem;
+        font-weight: 600;
+        color: var(--header-color);
+    }
+
+    .card p {
+        margin: 0;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        color: var(--label-color);
+    }
+
+    .note {
+        margin: 2.5rem 0 0;
+        font-size: 0.8rem;
+        color: var(--label-color);
+    }
+
+    @media (max-width: 640px) {
+        .cards {
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 380px;
+        }
+    }
+</style>
+</head>
+<body>
+    <h1>Investing Strategies</h1>
+    <main class="cards">
+        <a class="card" href="./asset_allocation/">
+            <h2>Asset Allocation</h2>
+            <p>Rebalancing &amp; withdrawal backtest dashboard</p>
+        </a>
+        <a class="card" href="./dual_momentum/">
+            <h2>Dual Momentum</h2>
+            <p>Momentum asset switching (post-tax) backtest</p>
+        </a>
+    </main>
+    <p class="note">Shared data: monthly NAV series, 2005&ndash;2026</p>
+</body>
+</html>

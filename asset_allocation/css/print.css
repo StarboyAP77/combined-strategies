@@ -1,0 +1,107 @@
+/* Phase 4 split: print rules (from <style>). */
+        @media print {
+            /* 1. Global Page Resets */
+            @page {
+                margin: 1cm; /* Give standard margins */
+                size: landscape; /* Recommend landscape for charts */
+            }
+
+            html, body {
+                height: auto !important;
+                min-height: 0 !important; /* Fix for some browsers forcing 100vh */
+                overflow: visible !important;
+                background-color: white !important;
+                color: black !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                font-size: 12px;
+            }
+
+            /* 2. Layout Structure - Kill Flexbox/Grid */
+            .container, .results {
+                display: block !important;
+                width: 100% !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+
+            /* 3. Hide UI Elements */
+            .controls, button, #theme-toggle, select, input, 
+            .radio-group, summary, #comparison-tooltip, 
+            .allocation-grid label, #saved-allocations-list {
+                display: none !important;
+            }
+
+            /* 4. THE CHART GROUP WRAPPER (Critical Fix) */
+            .chart-group, details {
+                display: block !important;
+                width: 100% !important;
+                height: auto !important;
+                
+                /* Force page break prevention */
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+                -webkit-column-break-inside: avoid !important;
+                
+                /* Add spacing to encourage clean breaks BETWEEN charts */
+                margin-top: 20px !important;
+                margin-bottom: 40px !important;
+                padding: 10px !important;
+                
+                border: 1px solid #ddd !important;
+                box-shadow: none !important;
+                background: transparent !important;
+            }
+
+            /* Ensure content is visible */
+            .details-content {
+                display: block !important;
+                height: auto !important;
+                padding: 0 !important;
+                border: none !important;
+            }
+
+            /* 5. Chart Container Sizing */
+            .chart-container {
+                /* Slightly reduced height to fit better on pages */
+                height: 350px !important; 
+                width: 100% !important;
+                
+                /* Redundant break protection */
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+            }
+
+            /* 6. Typography */
+            h3 {
+                font-size: 16px !important;
+                text-align: center;
+                margin: 10px 0 !important;
+                color: #000 !important;
+                break-after: avoid !important; /* Keep title with chart */
+                page-break-after: avoid !important;
+            }
+            
+            h4 {
+                font-size: 14px !important;
+                color: #333 !important;
+                margin-bottom: 5px !important;
+                break-after: avoid !important;
+            }
+            
+            p {
+                font-size: 11px !important;
+                color: #444 !important;
+                margin-bottom: 10px !important;
+            }
+
+            /* 7. Canvas Fix */
+            canvas {
+                max-width: 100% !important;
+                /* Ensure canvas doesn't overflow */
+                height: auto !important; 
+            }
+        }
